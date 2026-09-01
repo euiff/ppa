@@ -1,0 +1,65 @@
+name: Publish Escalas Top v1.1.2
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.1.2.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.1.1 validated package
+        run: curl -fL https://github.com/euiff/ppa/releases/download/v1.1.1/escalastop-cpanel.zip -o old.zip
+      - name: Apply authenticated updater hotfix
+        shell: bash
+        run: |
+          rm -rf release && mkdir release
+          unzip -q old.zip -d release
+          python <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          root=Path('release')
+          oldjs=next((root/'assets').glob('index-*.js'))
+          s=oldjs.read_text()
+          old='const S=await fetch("/api/update.php",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({action:y,..._})});'
+          new='const T=localStorage.getItem("escala-facil.auth-token"),H={"Content-Type":"application/json",Accept:"application/json"};T&&(H.Authorization=`Bearer ${T}`);const S=await fetch("/api/update.php",{method:"POST",credentials:"include",headers:H,body:JSON.stringify({action:y,..._})});'
+          if old not in s: raise SystemExit('Updater snippet not found')
+          s=s.replace(old,new,1)
+          oldname=oldjs.name
+          newname='index-v112-auth.js'
+          newpath=root/'assets'/newname
+          newpath.write_text(s)
+          oldjs.unlink()
+          idx=root/'index.html'
+          text=idx.read_text()
+          if oldname not in text: raise SystemExit('index reference missing')
+          idx.write_text(text.replace(oldname,newname))
+          (root/'VERSION').write_text('1.1.2\n')
+          oldnote=root/'ATUALIZACAO-v1.1.1.md'
+          if oldnote.exists(): oldnote.unlink()
+          (root/'ATUALIZACAO-v1.1.2.md').write_text('# Escalas Top v1.1.2\n\n- Corrige Erro HTTP 401 ao verificar atualizações.\n- Envia a sessão MASTER autenticada ao backend PHP.\n- Mantém o canal oficial sem token GitHub para o cliente.\n- Mantém o modo mobile responsivo e todas as funcionalidades da v1.1.1.\n')
+          sw=root/'sw.js'
+          ss=sw.read_text().replace(oldname,newname)
+          md5=hashlib.md5(idx.read_bytes()).hexdigest()
+          ss=re.sub(r'(url:"index\\.html",revision:")[0-9a-f]+("\\})',r'\\g<1>'+md5+r'\\2',ss)
+          sw.write_text(ss)
+          assert 'escala-facil.auth-token' in newpath.read_text()
+          assert oldname not in idx.read_text()
+          assert oldname not in sw.read_text()
+          PY
+          cd release && zip -qr ../escalastop-cpanel.zip .
+          cd ..
+          unzip -t escalastop-cpanel.zip
+      - name: Publish v1.1.2 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.1.2 escalastop-cpanel.zip \
+            --repo euiff/ppa \
+            --title "Escalas Top v1.1.2" \
+            --notes "Corrige o Erro HTTP 401 do verificador de atualizações. A chamada ao backend PHP agora envia a sessão autenticada do MASTER. O cliente continua sem precisar configurar GitHub, token ou chave. Mantém o layout mobile responsivo e todas as funções da v1.1.1."
