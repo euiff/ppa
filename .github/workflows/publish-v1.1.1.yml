@@ -1,0 +1,62 @@
+name: Publish Escalas Top v1.1.1
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "release/v1.1.1/READY"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated package
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 'https://sdmntprbrazilsouth.oaiusercontent.com/files/00000000-07a4-820e-b768-366b16beedbf/raw?se=2026-09-01T08%3A07%3A55Z&sp=r&sv=2026-02-06&sr=b&scid=b799774d-1265-53af-b4ba-c59c8843d28c&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-31T22%3A18%3A49Z&ske=2026-09-01T22%3A18%3A49Z&sks=b&skv=2026-02-06&sig=aP6IzXbSASGU2cFpxBdXkH1ctWNyUx79mk8uyxkRa7g%3D' -o artifact.zip
+          mkdir artifact
+          unzip -q artifact.zip -d artifact
+          cp artifact/escalastop-cpanel.zip ./escalastop-cpanel.zip
+
+      - name: Validate official package
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'db46e5bec8a01ae7c7ba8cd1a9b8b3e8a4ca9ab8ec18a544e0fada36cc7571f8  escalastop-cpanel.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.1.1'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/update.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/updater_lib.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/upload.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/config.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/webhook.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/cron.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/functions.php'
+
+      - name: Publish public binary Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.1.1
+
+          - Atualizador oficial sem token/repositório na tela do cliente.
+          - Corrige o Erro HTTP 401 da versão 1.1.0.
+          - Interface mobile corrigida para Android/iPhone, sem precisar ampliar/reduzir a tela.
+          - Sidebar desktop não é mais comprimida no celular; navegação móvel é usada como aplicativo.
+          - Formulários, diálogos e áreas de toque adaptados ao celular.
+          - Mantidas fotos de perfil, lista de voluntários, filtros de escala, WhatsApp e demais correções.
+          EOF
+          if gh release view v1.1.1 >/dev/null 2>&1; then
+            gh release upload v1.1.1 escalastop-cpanel.zip --clobber
+            gh release edit v1.1.1 --title 'Escalas Top v1.1.1' --notes-file notes.md
+          else
+            gh release create v1.1.1 escalastop-cpanel.zip --title 'Escalas Top v1.1.1' --notes-file notes.md
+          fi
