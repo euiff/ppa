@@ -1,0 +1,23 @@
+name: Export Escalas Top v1.2.1 Artifact
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/export-v1.2.1-artifact.yml"]
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official v1.2.1 release package
+        run: |
+          curl -fL --retry 3 https://github.com/euiff/ppa/releases/download/v1.2.1/escalastop-cpanel.zip -o escalastop-cpanel-v1.2.1.zip
+          echo 'fc196ca87885ad39eb853343010fbd4f75c81e8096223a8ba329a413e9f545c2  escalastop-cpanel-v1.2.1.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel-v1.2.1.zip
+          unzip -p escalastop-cpanel-v1.2.1.zip VERSION | grep -qx '1.2.1'
+      - name: Upload manual installation package
+        uses: actions/upload-artifact@v4
+        with:
+          name: escalastop-v1.2.1-manual
+          path: escalastop-cpanel-v1.2.1.zip
+          if-no-files-found: error
