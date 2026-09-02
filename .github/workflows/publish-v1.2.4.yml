@@ -1,0 +1,41 @@
+name: Publish Escalas Top v1.2.4
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.2.4.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated v1.2.4 artifact
+        run: |
+          curl -fL 'https://sdmntprbrazilsouth.oaiusercontent.com/files/00000000-7ec8-820e-8221-0acc6036cbae/raw?se=2026-09-02T10%3A54%3A38Z&sp=r&sv=2026-02-06&sr=b&scid=086e296a-b5d1-58bc-895e-94f87d7a7723&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-02T10%3A24%3A11Z&ske=2026-09-03T10%3A24%3A11Z&sks=b&skv=2026-02-06&sig=tCJqWYcXOgjPKxi56wZZZz5ZbQDzK4zaHMokRTSQxIE%3D' -o artifact.zip
+          unzip -q artifact.zip -d artifact
+          test -f artifact/escalastop-cpanel-v1.2.4.zip
+          cp artifact/escalastop-cpanel-v1.2.4.zip escalastop-cpanel.zip
+          echo 'efca2d3dc53d04040888bf8b498b5b4df77592c2de20faf91e534f319e9c112d  escalastop-cpanel.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.2.4'
+
+      - name: Publish v1.2.4 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.2.4
+
+          - Corrige definitivamente o bloqueio ao atualizar por causa do cron.php.
+          - O botão Atualizar agora não tenta mais reescrever api/cron.php.
+          - Novo api/cron-runner.php executa automações normais e atualizações automáticas em um único CRON.
+          - MASTER > Config. Global mostra o novo comando central pronto para copiar e colar.
+          - Atualização automática verifica novas versões a cada hora quando ativada.
+          - Mantém correções de repertório, vídeo, PDF/impressão, mapa com privacidade, WhatsApp e mobile.
+          EOF
+          gh release create v1.2.4 escalastop-cpanel.zip --title "Escalas Top v1.2.4" --notes-file notes.md
