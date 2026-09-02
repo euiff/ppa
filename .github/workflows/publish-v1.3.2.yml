@@ -1,0 +1,46 @@
+name: Publish Escalas Top v1.3.2
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.3.2.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download validated v1.3.2 artifact
+        run: |
+          curl -fL 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-542c-81f5-b47e-0e3e7eb114c5/raw?se=2026-09-02T14%3A27%3A45Z&sp=r&sv=2026-02-06&sr=b&scid=cd2d9138-3f06-5290-8670-265286dca1fe&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-02T13%3A15%3A04Z&ske=2026-09-03T13%3A15%3A04Z&sks=b&skv=2026-02-06&sig=D9u/d5sQP2nstD8f6VGxh6joV8TBKRDLwFSiIjdeld8%3D' -o artifact.zip
+          unzip -q artifact.zip -d artifact
+          test -f artifact/escalastop-cpanel-v1.3.2.zip
+          cp artifact/escalastop-cpanel-v1.3.2.zip escalastop-cpanel.zip
+          echo 'd48002a7987af86174d58e3402ffd9a9eb86a775339f4a0de07c1c4ce0c3f430  escalastop-cpanel.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.3.2'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/quiz_router_v131.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/config.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/webhook.php'
+      - name: Publish v1.3.2 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.3.2
+
+          - Corrige o erro de chave duplicada ao avaliar manualmente no Felicitômetro.
+          - Atualiza o mesmo quiz/avaliação em vez de criar linhas concorrentes.
+          - Ignora sempre mensagens fromMe durante o quiz.
+          - Dá prioridade ao quiz ativo sobre confirmação de escala.
+          - “Não estive” conclui imediatamente e aparece no painel.
+          - A nota de 1 a 5 conclui imediatamente; sugestão não é obrigatória.
+          - Sessões incompletas aparecem como Em andamento.
+          - Limpa mensagens automáticas gravadas indevidamente como feedback.
+          - CRON instala, com backup, o roteador seguro antes do webhook existente.
+          - Proteção adicional contra eventos duplicados da Evolution: a mesma resposta não pode avançar duas etapas.
+          EOF
+          gh release create v1.3.2 escalastop-cpanel.zip --title "Escalas Top v1.3.2" --notes-file notes.md
