@@ -1,0 +1,49 @@
+name: Publish Escalas Top v1.3.5 Tested
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/publish-v1.3.5.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact tested artifact
+        run: |
+          curl -L --fail --retry 3 'https://sdmntprbrazilsouth.oaiusercontent.com/files/00000000-96fc-820e-9e49-308e182f71c1/raw?se=2026-09-02T22%3A27%3A34Z&sp=r&sv=2026-02-06&sr=b&scid=f713ce4f-fe0f-5248-8146-df1ab750a671&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-02T16%3A46%3A07Z&ske=2026-09-03T16%3A46%3A07Z&sks=b&skv=2026-02-06&sig=1PrHGIZT0GT4bSnJjAzoUEtLRgDiLTfn099a2JgMxpk%3D' -o artifact.zip
+          unzip -q artifact.zip -d artifact
+          test -f artifact/escalastop-cpanel-v1.3.5.zip
+          echo '0ab4a650f00f2d7a308394273b3c8e76cac8fc440a938f56f4d9ef4727222abb  artifact/escalastop-cpanel-v1.3.5.zip' | sha256sum -c -
+          cp artifact/escalastop-cpanel-v1.3.5.zip escalastop-cpanel.zip
+          unzip -t escalastop-cpanel.zip
+          test "$(unzip -p escalastop-cpanel.zip VERSION | tr -d '\r\n')" = '1.3.5'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/.htaccess'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/webhook-entry-v135.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/confirmation_router_v135.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/config.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/webhook.php'
+      - name: Publish tested release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.3.5
+
+          - Corrige definitivamente a ativação do fluxo de confirmação do WhatsApp sem depender de o CRON editar webhook.php.
+          - /api/webhook.php passa por uma entrada confiável via .htaccess, preservando o webhook existente como fallback para outros fluxos.
+          - Corrige erro fatal de PHP na normalização de números de telefone que podia fazer o bot não responder.
+          - Testado com Evolution normal, @lid, remoteJidAlt, senderPn, remoteJidPn, fromMe, grupos e eventos duplicados.
+          - Testado com dois voluntários distintos para garantir que a resposta 1/2 não cruza escalas.
+          - 1 confirma a escala correta; 2 registra recusa; repetição de 1 é idempotente.
+          - Quiz pós-culto continua com prioridade sobre confirmação de escala.
+          - Corrige Minhas Escalas no app: remove filtro relacional incompatível com o adaptador PHP e atualiza a lista a cada 10 segundos.
+          - Mantém mapa, fuso horário, CRON, Felicitômetro, PDF, repertório e atualizador.
+          - Pacote gerado somente após a suíte de regressão e o build de produção passarem completamente.
+          EOF
+          gh release create v1.3.5 escalastop-cpanel.zip --title 'Escalas Top v1.3.5' --notes-file notes.md
