@@ -1,0 +1,40 @@
+name: Publish Escalas Top v1.2.3
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.2.3.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated v1.2.3 artifact
+        run: |
+          curl -fL 'https://sdmntprbrazilsouth.oaiusercontent.com/files/00000000-9158-820e-8cd2-5a5289d1f59d/raw?se=2026-09-02T10%3A34%3A28Z&sp=r&sv=2026-02-06&sr=b&scid=e77100a7-deca-54fb-98b7-30305795a33d&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-02T10%3A24%3A50Z&ske=2026-09-03T10%3A24%3A50Z&sks=b&skv=2026-02-06&sig=b1I1hDmdRlB30q6mIHRt5kFomSffjAJ8vM6kWO/7Oqo%3D' -o artifact.zip
+          unzip -q artifact.zip -d artifact
+          test -f artifact/escalastop-cpanel-v1.2.3.zip
+          cp artifact/escalastop-cpanel-v1.2.3.zip escalastop-cpanel.zip
+          echo 'e23bb07e4c495434d56deda644cecfc63b67b52c918d22abb1e0198575ce4c6e  escalastop-cpanel.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.2.3'
+
+      - name: Publish v1.2.3 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.2.3
+
+          - Corrige a exibição das cifras salvas com HTML, removendo tags e organizando acordes/letra.
+          - Melhora o tratamento de links de vídeo do YouTube e permite buscar novamente um vídeo válido.
+          - Adiciona Imprimir e Salvar PDF diretamente na tela de detalhes da escala usada por pastor/líder.
+          - PDF organizado com igreja, data, culto, horário, departamento, voluntários, funções e status.
+          - Mantém CRON, atualizador, mapa com privacidade, WhatsApp, fotos de perfil e interface mobile.
+          EOF
+          gh release create v1.2.3 escalastop-cpanel.zip --title "Escalas Top v1.2.3" --notes-file notes.md
