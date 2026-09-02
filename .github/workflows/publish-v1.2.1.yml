@@ -1,0 +1,91 @@
+name: Publish Escalas Top v1.2.1
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.2.1.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download v1.2.0 package
+        run: curl -fL https://github.com/euiff/ppa/releases/download/v1.2.0/escalastop-cpanel.zip -o old.zip
+
+      - name: Apply v1.2.1 updater fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release && mkdir release
+          unzip -q old.zip -d release
+          python <<'PY'
+          from pathlib import Path
+          p=Path('release/api/update.php')
+          s=p.read_text()
+          start=s.index('function updater_ensure_cron_hook():array{')
+          end=s.index('$body=input_json();', start)
+          fn=r'''function updater_ensure_cron_hook():array{
+            $file=__DIR__.'/cron.php';
+            if(!is_file($file))return ['ok'=>false,'message'=>'api/cron.php não encontrado'];
+            $s=(string)file_get_contents($file);
+            $changed=false;
+            if(!str_contains($s,"updater_lib.php")){
+              if(str_contains($s,"require __DIR__.'/automation_lib.php';")){
+                $s=str_replace("require __DIR__.'/automation_lib.php';","require __DIR__.'/automation_lib.php';\nrequire __DIR__.'/updater_lib.php';",$s,$count);
+                $changed=$changed||$count>0;
+              }elseif(str_contains($s,"require __DIR__.'/bootstrap.php';")){
+                $s=str_replace("require __DIR__.'/bootstrap.php';","require __DIR__.'/bootstrap.php';\nrequire __DIR__.'/updater_lib.php';",$s,$count);
+                $changed=$changed||$count>0;
+              }else return ['ok'=>false,'message'=>'Não foi possível adicionar a biblioteca de atualização ao cron.php'];
+            }
+            if(!str_contains($s,'updater_maybe_auto_install()')){
+              $hook="  try { updater_maybe_auto_install(); } catch (Throwable \\$updateError) { audit(null,'system_auto_update_error','system_update',['message'=>\\$updateError->getMessage()],'warning'); }\n";
+              $patterns=[
+                "/(^[ \\t]*out\\(\\['ok'=>true\\]\\+\\$summary\\);)/m",
+                "/(^[ \\t]*out\\(\\[\\s*'ok'\\s*=>\\s*true\\s*\\]\\s*\\+\\s*\\$summary\\s*\\);)/m",
+                "/(^[ \\t]*}catch\\(Throwable\\s+\\$e\\))/m"
+              ];
+              $done=false;
+              foreach($patterns as $pattern){
+                $replacement=$hook.'$1';
+                $next=preg_replace($pattern,$replacement,$s,1,$count);
+                if($count>0&&is_string($next)){$s=$next;$changed=true;$done=true;break;}
+              }
+              if(!$done)return ['ok'=>false,'message'=>'Não foi possível localizar um ponto seguro de integração no cron.php'];
+            }
+            if($changed&&file_put_contents($file,$s)===false)return ['ok'=>false,'message'=>'Sem permissão para atualizar api/cron.php'];
+            return ['ok'=>true,'changed'=>$changed];
+          }
+          '''
+          p.write_text(s[:start]+fn+s[end:])
+          Path('release/VERSION').write_text('1.2.1\n')
+          old=Path('release/ATUALIZACAO-v1.2.0.md')
+          if old.exists(): old.unlink()
+          Path('release/ATUALIZACAO-v1.2.1.md').write_text('''# Escalas Top v1.2.1\n\n- MASTER > Config. Global mantém CRON do Sistema com copiar comando, linha completa e teste.\n- Usa automaticamente a cron_key real da instalação.\n- Corrige a integração do atualizador automático com cron.php.\n- Mantém mapa de privacidade, PDF/impressão, mobile, fotos e WhatsApp.\n''')
+          PY
+          php -l release/api/update.php
+          grep -R -q "CRON do Sistema" release/assets
+          grep -R -q "Copiar comando" release/assets
+          cd release && zip -qr ../escalastop-cpanel.zip .
+          cd ..
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.2.1'
+
+      - name: Publish v1.2.1 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.2.1
+
+          - MASTER > Config. Global: CRON do Sistema pronto para copiar e colar.
+          - Exibe comando do cPanel, linha completa e teste do CRON usando a chave real da instalação.
+          - Corrige o erro de integração automática com api/cron.php.
+          - Mantém mapa com janela de privacidade, impressão/PDF, mobile, fotos de perfil e WhatsApp.
+          EOF
+          gh release create v1.2.1 escalastop-cpanel.zip --title "Escalas Top v1.2.1" --notes-file notes.md
