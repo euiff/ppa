@@ -1,0 +1,62 @@
+name: Publish Escalas Top v1.2.0
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.2.0.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated v1.2.0 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 'https://sdmntprbrazilsouth.oaiusercontent.com/files/00000000-26d8-820e-91be-ca4c1c1bab8f/raw?se=2026-09-02T01%3A31%3A12Z&sp=r&sv=2026-02-06&sr=b&scid=99c776d5-6471-5f91-83b8-37e648f46f09&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-01T23%3A31%3A29Z&ske=2026-09-02T23%3A31%3A29Z&sks=b&skv=2026-02-06&sig=fPhnRjm/9Q1tUoe%2BHDYyccLIHs6YSHZdW%2BANtfs09/I%3D' -o artifact.zip
+          mkdir artifact
+          unzip -q artifact.zip -d artifact
+          cp artifact/escalastop-cpanel.zip ./escalastop-cpanel.zip
+
+      - name: Validate official package
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '5068f16f8d157986ce8467394eb22bf9f26b96c22f08e739deb9e36ca3a64871  escalastop-cpanel.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.2.0'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/update.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/updater_lib.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/upload.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/config.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/webhook.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/cron.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/functions.php'
+
+      - name: Publish v1.2.0 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.2.0
+
+          - Mapa de rastreamento com janela de privacidade de 60 minutos antes da escala.
+          - Somente voluntários realmente escalados em escala publicada aparecem no acompanhamento daquele horário.
+          - A localização compartilhada deixa de ser exibida e é removida do servidor quando chega o horário da escala.
+          - O check-in automático continua funcionando; após o horário o GPS pode ser usado apenas localmente para concluir automações, sem expor a posição no mapa.
+          - Detalhes da escala agora têm botões Imprimir e Baixar PDF.
+          - O relatório reúne todos os departamentos, funções, voluntários e status da mesma data/culto em tabela organizada.
+          - Mantém correção do atualizador, interface mobile, fotos de perfil, filtros de escala, WhatsApp e demais funções.
+          EOF
+          if gh release view v1.2.0 >/dev/null 2>&1; then
+            gh release upload v1.2.0 escalastop-cpanel.zip --clobber
+            gh release edit v1.2.0 --title 'Escalas Top v1.2.0' --notes-file notes.md
+          else
+            gh release create v1.2.0 escalastop-cpanel.zip --title 'Escalas Top v1.2.0' --notes-file notes.md
+          fi
