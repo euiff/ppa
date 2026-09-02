@@ -1,0 +1,50 @@
+name: Publish Escalas Top v1.3.0
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/publish-v1.3.0.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated v1.3.0 artifact
+        run: |
+          curl -fL 'https://sdmntprbrazilsouth.oaiusercontent.com/files/00000000-ab64-820e-b27b-8d6d8c2cd27f/raw?se=2026-09-02T12%3A46%3A25Z&sp=r&sv=2026-02-06&sr=b&scid=7f655fb3-b036-55a0-a53a-7b38423cb763&skoid=db6dad9e-03ee-465b-aef6-ce0f63a161dc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-02T11%3A41%3A59Z&ske=2026-09-03T11%3A41%3A59Z&sks=b&skv=2026-02-06&sig=kNWN5tn4BqM%2B0YAq%2BjQIN3jSuUv3iNez9tNv/IzXxZo%3D' -o artifact.zip
+          unzip -q artifact.zip -d artifact
+          test -f artifact/escalastop-cpanel-v1.3.0.zip
+          cp artifact/escalastop-cpanel-v1.3.0.zip escalastop-cpanel.zip
+          echo '832c84abb129461247317f7a0028174b55d2e5670f7f5e4bd75d8e0e50ef356f  escalastop-cpanel.zip' | sha256sum -c -
+          unzip -t escalastop-cpanel.zip
+          unzip -p escalastop-cpanel.zip VERSION | grep -qx '1.3.0'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/automation_v130.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/cron.php'
+          unzip -l escalastop-cpanel.zip | grep -q 'api/cron-runner.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/config.php'
+          ! unzip -l escalastop-cpanel.zip | grep -q 'api/webhook.php'
+
+      - name: Publish v1.3.0 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Escalas Top v1.3.0
+
+          - Revisão completa do motor de automações e notificações.
+          - Quiz pós-culto passa a ser devido 3 horas após o início do culto para todos os escalados elegíveis, inclusive quem fez check-in automático.
+          - O quiz só é marcado como enviado depois de a Evolution API confirmar o envio; falhas ficam disponíveis para nova tentativa controlada.
+          - Recupera notificações iniciais de escalas publicadas que ficaram sem job e reprocessa jobs falhos com backoff.
+          - Lembretes são enviados somente para itens já notificados que continuam pendentes.
+          - A marcação automática de faltou não ocorre antes da notificação inicial ter sido realmente enviada.
+          - Check-in e check-out automáticos passam a sincronizar também os campos do item da escala usados em mapa e relatórios.
+          - O quiz respondido pelo aplicativo atualiza a mesma resposta do WhatsApp, evitando duplicidade.
+          - O CRON central executa o motor diretamente e fornece diagnóstico detalhado para o MASTER.
+          - Mantém atualizador automático, privacidade do mapa, repertório, PDF, WhatsApp e interface mobile.
+          EOF
+          gh release create v1.3.0 escalastop-cpanel.zip --title "Escalas Top v1.3.0" --notes-file notes.md
