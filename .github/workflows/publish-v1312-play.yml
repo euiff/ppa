@@ -1,0 +1,79 @@
+name: Publish Escalas Top v1.3.12 Play compliance
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-v1312-play.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.11 -p escalastop-cpanel.zip --clobber
+          echo 'c47f013130e281647731a0e43d75063ba60062b4923101364192d66245e61eff  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.11"
+
+      - name: Add Play privacy and account deletion endpoints
+        run: |
+          set -euo pipefail
+          cp .pkg_v1312_src/account-delete.php pkg/api/account-delete.php
+          cp .pkg_v1312_src/privacidade.html pkg/privacidade.html
+          cp .pkg_v1312_src/termos.html pkg/termos.html
+          cp .pkg_v1312_src/excluir-conta.html pkg/excluir-conta.html
+          printf '1.3.12\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.12.md <<'EOF'
+          # Escalas Top v1.3.12
+
+          Preparação do backend para o aplicativo Android e publicação no Google Play.
+
+          - Adiciona exclusão de conta autenticada em `api/account-delete.php`.
+          - Adiciona página pública de Política de Privacidade.
+          - Adiciona Termos de Uso públicos.
+          - Adiciona página pública para solicitação de exclusão de conta.
+          - Mantém integralmente as correções de WhatsApp e fila de pendências da v1.3.11.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.12.md
+
+      - name: Validate server package
+        run: |
+          set -euo pipefail
+          php -l pkg/api/account-delete.php
+          grep -Fq 'Política de Privacidade' pkg/privacidade.html
+          grep -Fq 'Termos de Uso' pkg/termos.html
+          grep -Fq 'EXCLUIR' pkg/excluir-conta.html
+          test "$(cat pkg/VERSION)" = "1.3.12"
+
+      - name: Build and publish v1.3.12
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escalastop-cpanel.zip .)
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.12.txt
+          gh release delete v1.3.12 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.12 escalastop-cpanel.zip SHA256-v1.3.12.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escalas Top v1.3.12' \
+            --notes-file pkg/ATUALIZACAO-v1.3.12.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escalastop-cpanel-v1.3.12
+          path: |
+            escalastop-cpanel.zip
+            SHA256-v1.3.12.txt
+          retention-days: 14
