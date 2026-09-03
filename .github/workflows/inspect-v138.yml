@@ -22,6 +22,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          echo "inspection trigger: 2026-09-03"
           : > package.b64
           for blob in ${PACKAGE_BLOBS}; do
             gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" --jq .content \
