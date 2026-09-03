@@ -1,0 +1,81 @@
+name: Validate and publish Escalas Top v1.3.8
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-v138.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover exact package blob
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_BLOBS: 6836e3045b858a30c2b6918f4b966e67fbac2232 b7d934407bd19e7ef2bf88798f407e7a57865517 269c8ab77155d8616b25b963aeeb891f0c9fe713 28cbee68eb1501849614a557a492db20143ed4f3 3810f9948efcd8c60e818ee6aa5e03af83f378b1 ac9438717709e6dfe73a9ef154b50a037281181b
+          PACKAGE_SHA256: 70adb502436b2556db7fc51dd6f5dcc5e11d38faf6713eb2897fa3c1dc4b5857
+        run: |
+          : > package.b64
+          for blob in ${PACKAGE_BLOBS}; do
+            gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" --jq .content \
+              | tr -d '\n' | base64 --decode >> package.b64
+          done
+          base64 --decode package.b64 > escalastop-cpanel-v1.3.8.zip
+          echo "${PACKAGE_SHA256}  escalastop-cpanel-v1.3.8.zip" | sha256sum --check --strict
+          unzip -t escalastop-cpanel-v1.3.8.zip
+          mkdir escalastop-v1.3.8
+          unzip -q escalastop-cpanel-v1.3.8.zip -d escalastop-v1.3.8
+
+      - name: Validate package structure and PHP syntax
+        run: |
+          test "$(cat escalastop-v1.3.8/VERSION)" = "1.3.8"
+          test -f escalastop-v1.3.8/index.html
+          test -f escalastop-v1.3.8/api/confirmation_router_v138.php
+          test -f escalastop-v1.3.8/api/webhook-entry-v138.php
+          test -f escalastop-v1.3.8/api/webhook_sync_v138.php
+          find escalastop-v1.3.8/api -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+          grep -Fq 'webhook-entry-v138.php' escalastop-v1.3.8/api/.htaccess
+          grep -Fq "['MESSAGES_UPSERT','MESSAGES_UPDATE']" escalastop-v1.3.8/api/webhook_sync_v138.php
+          grep -Fq "webhookByEvents'=>false" escalastop-v1.3.8/api/webhook_sync_v138.php
+          grep -Fq "v138_sync_evolution_webhook" escalastop-v1.3.8/api/automation_v130.php
+          grep -Fq "if(!\$fromMe&&is_file(__DIR__.'/quiz_router_v131.php'))" escalastop-v1.3.8/api/webhook-entry-v138.php
+          grep -Fq "whatsapp-webhook-entry-v138.log" escalastop-v1.3.8/api/webhook-entry-v138.php
+          grep -Fq "fromMe_confirmation_allowed" escalastop-v1.3.8/api/confirmation_router_v138.php
+
+      - name: Run webhook regression tests
+        env:
+          WEBHOOK_TEST_B64: PD9waHAKZGVjbGFyZShzdHJpY3RfdHlwZXM9MSk7CgokdGVzdENvbmZpZyA9IFsKICAgICd3aGF0c2FwcF93ZWJob29rX3Rva2VuJyA9PiAndG9rZW4tc2VndXJvLTEzOCcsCiAgICAnZXZvbHV0aW9uX2FwaV9rZXknID0+ICdhcGktc2VndXJhLTEzOCcsCiAgICAnZXZvbHV0aW9uX2luc3RhbmNlJyA9PiAnaWdyZWphLXByaW5jaXBhbCcsCl07CgpmdW5jdGlvbiBjb25maWdfdmFsdWUoc3RyaW5nICRrZXksID9zdHJpbmcgJGlncmVqYUlkPW51bGwsIHN0cmluZyAkZGVmYXVsdD0nJyk6IHN0cmluZyB7CiAgICBnbG9iYWwgJHRlc3RDb25maWc7CiAgICByZXR1cm4gKHN0cmluZykoJHRlc3RDb25maWdbJGtleV0gPz8gJGRlZmF1bHQpOwp9CgpmdW5jdGlvbiBleHBlY3RfdHJ1ZShib29sICRjb25kaXRpb24sIHN0cmluZyAkbWVzc2FnZSk6IHZvaWQgewogICAgaWYgKCEkY29uZGl0aW9uKSB7CiAgICAgICAgZndyaXRlKFNUREVSUiwgIkZBTEhPVTogeyRtZXNzYWdlfVxuIik7CiAgICAgICAgZXhpdCgxKTsKICAgIH0KfQoKZmluYWwgY2xhc3MgVGVzdE91dCBleHRlbmRzIFJ1bnRpbWVFeGNlcHRpb24gewogICAgcHVibGljIGZ1bmN0aW9uIF9fY29uc3RydWN0KHB1YmxpYyBhcnJheSAkcGF5bG9hZCwgcHVibGljIGludCAkc3RhdHVzKSB7IHBhcmVudDo6X19jb25zdHJ1Y3QoJ291dCcpOyB9Cn0KCmZpbmFsIGNsYXNzIEZha2VTdGF0ZW1lbnQgewogICAgcHJpdmF0ZSBhcnJheSAkcm93czsKICAgIHByaXZhdGUgaW50ICRhZmZlY3RlZCA9IDA7CiAgICBwdWJsaWMgZnVuY3Rpb24gX19jb25zdHJ1Y3QocHJpdmF0ZSBzdHJpbmcgJHNxbCwgYXJyYXkgJHJvd3M9W10pIHsgJHRoaXMtPnJvd3MgPSAkcm93czsgfQogICAgcHVibGljIGZ1bmN0aW9uIGV4ZWN1dGUoYXJyYXkgJHBhcmFtcz1bXSk6IGJvb2wgewogICAgICAgIGdsb2JhbCAkZmFrZVNjYWxlU3RhdHVzOwogICAgICAgIGlmIChzdHJfY29udGFpbnMoJHRoaXMtPnNxbCwgJ1VQREFURSBlc2NhbGFfaXRlbnMgU0VUIHN0YXR1c19jb25maXJtYWNhbz0nKSkgewogICAgICAgICAgICAkZmFrZVNjYWxlU3RhdHVzID0gKHN0cmluZykoJHBhcmFtc1swXSA/PyAkZmFrZVNjYWxlU3RhdHVzKTsKICAgICAgICAgICAgJHRoaXMtPmFmZmVjdGVkID0gMTsKICAgICAgICB9CiAgICAgICAgcmV0dXJuIHRydWU7CiAgICB9CiAgICBwdWJsaWMgZnVuY3Rpb24gZmV0Y2hBbGwoKTogYXJyYXkgeyByZXR1cm4gJHRoaXMtPnJvd3M7IH0KICAgIHB1YmxpYyBmdW5jdGlvbiBmZXRjaCgpOiBhcnJheXxmYWxzZSB7IHJldHVybiAkdGhpcy0+cm93c1swXSA/PyBmYWxzZTsgfQogICAgcHVibGljIGZ1bmN0aW9uIGZldGNoQ29sdW1uKCk6IG1peGVkIHsKICAgICAgICBpZiAoc3RyX2NvbnRhaW5zKCR0aGlzLT5zcWwsICdGUk9NIHF1aXpfcG9zX2N1bHRvJykpIHJldHVybiBmYWxzZTsKICAgICAgICAkcm93ID0gJHRoaXMtPnJvd3NbMF0gPz8gbnVsbDsKICAgICAgICByZXR1cm4gaXNfYXJyYXkoJHJvdykgPyByZXNldCgkcm93KSA6IGZhbHNlOwogICAgfQogICAgcHVibGljIGZ1bmN0aW9uIHJvd0NvdW50KCk6IGludCB7IHJldHVybiAkdGhpcy0+YWZmZWN0ZWQ7IH0KfQoKZmluYWwgY2xhc3MgRmFrZURiIHsKICAgIHB1YmxpYyBmdW5jdGlvbiBxdWVyeShzdHJpbmcgJHNxbCk6IEZha2VTdGF0ZW1lbnQgewogICAgICAgIGlmIChzdHJfY29udGFpbnMoJHNxbCwgJ0ZST00gcHJvZmlsZXMnKSkgewogICAgICAgICAgICByZXR1cm4gbmV3IEZha2VTdGF0ZW1lbnQoJHNxbCwgW1sKICAgICAgICAgICAgICAgICdpZCc9Pid2b2wtMTM4Jywnbm9tZSc9PidWb2x1bnRhcmlvIFRlc3RlJywnd2hhdHNhcHAnPT4nNTUxMTk5ODc2NTQzMicsJ2lncmVqYV9pZCc9PidpZy0xMzgnLAogICAgICAgICAgICBdXSk7CiAgICAgICAgfQogICAgICAgIGlmIChzdHJfY29udGFpbnMoJHNxbCwgJ0ZST00gbm90aWZpY2F0aW9uX2xvZ3MnKSkgewogICAgICAgICAgICByZXR1cm4gbmV3IEZha2VTdGF0ZW1lbnQoJHNxbCwgW1sKICAgICAgICAgICAgICAgICdkZXN0aW5hdGFyaW8nPT4nNTUxMTk5ODc2NTQzMicsJ21lbnNhZ2VtJz0+J1Jlc3BvbmRhIDEgb3UgMicsCiAgICAgICAgICAgICAgICAnbWV0YV9kYXRhJz0+J3siZXNjYWxhX2l0ZW1faWQiOiJpdGVtLTEzOCJ9JywnY3JlYXRlZF9hdCc9PicyMDI2LTA5LTAzIDIwOjAwOjAwJywKICAgICAgICAgICAgICAgICd0aXBvJz0+J3doYXRzYXBwJywnc3RhdHVzJz0+J2VudmlhZG8nLAogICAgICAgICAgICBdXSk7CiAgICAgICAgfQogICAgICAgIHJldHVybiBuZXcgRmFrZVN0YXRlbWVudCgkc3FsLCBbXSk7CiAgICB9CiAgICBwdWJsaWMgZnVuY3Rpb24gcHJlcGFyZShzdHJpbmcgJHNxbCk6IEZha2VTdGF0ZW1lbnQgewogICAgICAgIGdsb2JhbCAkZmFrZVNjYWxlU3RhdHVzOwogICAgICAgIGlmIChzdHJfY29udGFpbnMoJHNxbCwgJ0ZST00gZXNjYWxhX2l0ZW5zIGVpJykgJiYgc3RyX2NvbnRhaW5zKCRzcWwsICdXSEVSRSBlaS5pZD0/JykpIHsKICAgICAgICAgICAgcmV0dXJuIG5ldyBGYWtlU3RhdGVtZW50KCRzcWwsIFtbCiAgICAgICAgICAgICAgICAnaXRlbV9pZCc9PidpdGVtLTEzOCcsJ2VzY2FsYV9pZCc9Pidlc2NhbGEtMTM4Jywndm9sdW50YXJpb19pZCc9Pid2b2wtMTM4JywnZnVuY2FvJz0+J1NvbScsCiAgICAgICAgICAgICAgICAnc3RhdHVzX2NvbmZpcm1hY2FvJz0+JGZha2VTY2FsZVN0YXR1cywnbm90aWZpY2Fkbyc9PjEsJ2l0ZW1fdXBkYXRlZF9hdCc9PicyMDI2LTA5LTAzIDIwOjAwOjAwJywKICAgICAgICAgICAgICAgICdkYXRhJz0+JzIwOTktMDktMTAnLCdpZ3JlamFfaWQnPT4naWctMTM4JywnZXNjYWxhX3N0YXR1cyc9PidwdWJsaWNhZG8nLCdob3JhcmlvJz0+JzE5OjAwOjAwJywKICAgICAgICAgICAgICAgICdjdWx0b19ub21lJz0+J0N1bHRvJywnZGVwYXJ0YW1lbnRvX25vbWUnPT4nTWlkaWEnLCd2b2x1bnRhcmlvX25vbWUnPT4nVm9sdW50YXJpbyBUZXN0ZScsCiAgICAgICAgICAgICAgICAnd2hhdHNhcHAnPT4nNTUxMTk5ODc2NTQzMicsCiAgICAgICAgICAgIF1dKTsKICAgICAgICB9CiAgICAgICAgcmV0dXJuIG5ldyBGYWtlU3RhdGVtZW50KCRzcWwsIFtdKTsKICAgIH0KfQoKJGZha2VEYiA9IG5ldyBGYWtlRGIoKTsKJGZha2VTY2FsZVN0YXR1cyA9ICdwZW5kZW50ZSc7CiRmYWtlUmVwbGllcyA9IFtdOwpmdW5jdGlvbiBkYigpOiBGYWtlRGIgeyBnbG9iYWwgJGZha2VEYjsgcmV0dXJuICRmYWtlRGI7IH0KZnVuY3Rpb24gdXVpZDQoKTogc3RyaW5nIHsgcmV0dXJuICcwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAxMzgnOyB9CmZ1bmN0aW9uIGF1ZGl0KD9zdHJpbmcgJHVzZXJJZCwgc3RyaW5nICRhY3Rpb24sID9zdHJpbmcgJHJlc291cmNlPW51bGwsIGFycmF5ICRkZXRhaWxzPVtdLCBzdHJpbmcgJHNldmVyaXR5PSdpbmZvJyk6IHZvaWQge30KZnVuY3Rpb24gc2VuZF9sb2dnZWRfd2hhdHNhcHAoc3RyaW5nICR0aXBvLCBzdHJpbmcgJHBob25lLCBzdHJpbmcgJG1lc3NhZ2UsID9zdHJpbmcgJGlncmVqYUlkPW51bGwsIGFycmF5ICRtZXRhPVtdKTogYXJyYXkgewogICAgZ2xvYmFsICRmYWtlUmVwbGllczsgJGZha2VSZXBsaWVzW10gPSBjb21wYWN0KCd0aXBvJywncGhvbmUnLCdtZXNzYWdlJywnaWdyZWphSWQnLCdtZXRhJyk7IHJldHVybiBbJ29rJz0+dHJ1ZV07Cn0KZnVuY3Rpb24gb3V0KGFycmF5ICRwYXlsb2FkLCBpbnQgJHN0YXR1cz0yMDApOiBuZXZlciB7IHRocm93IG5ldyBUZXN0T3V0KCRwYXlsb2FkLCRzdGF0dXMpOyB9CgpyZXF1aXJlIF9fRElSX18uJy9lc2NhbGFzdG9wLXYxLjMuOC9hcGkvY29uZmlybWF0aW9uX3JvdXRlcl92MTM4LnBocCc7Cgokc3RhbmRhcmQgPSBbCiAgICAnZXZlbnQnID0+ICdNRVNTQUdFU19VUFNFUlQnLAogICAgJ2luc3RhbmNlJyA9PiAnaWdyZWphLXByaW5jaXBhbCcsCiAgICAnYXBpa2V5JyA9PiAnYXBpLXNlZ3VyYS0xMzgnLAogICAgJ2RhdGEnID0+IFsKICAgICAgICAna2V5JyA9PiBbCiAgICAgICAgICAgICdyZW1vdGVKaWQnID0+ICc1NTExOTk4NzY1NDMyQHMud2hhdHNhcHAubmV0JywKICAgICAgICAgICAgJ3JlbW90ZUppZEFsdCcgPT4gJzEyMzQ1Njc4OTAxMjM0NUBsaWQnLAogICAgICAgICAgICAnZnJvbU1lJyA9PiBmYWxzZSwKICAgICAgICAgICAgJ2lkJyA9PiAnTVNHLTEzOC1BJywKICAgICAgICBdLAogICAgICAgICdtZXNzYWdlJyA9PiBbJ2NvbnZlcnNhdGlvbicgPT4gJzEnXSwKICAgIF0sCl07CgokcGFyc2VkID0gdjEzOF9wYXJzZV9pbmJvdW5kKCRzdGFuZGFyZCk7CmV4cGVjdF90cnVlKHYxMzhfZXZlbnRfbmFtZSgkc3RhbmRhcmQpID09PSAnbWVzc2FnZXMudXBzZXJ0JywgJ25vcm1hbGl6YSBNRVNTQUdFU19VUFNFUlQnKTsKZXhwZWN0X3RydWUoJHBhcnNlZFsndGV4dCddID09PSAnMScsICdleHRyYWkgdGV4dG8gY29udmVyc2F0aW9uJyk7CmV4cGVjdF90cnVlKCRwYXJzZWRbJ21lc3NhZ2VfaWQnXSA9PT0gJ01TRy0xMzgtQScsICdleHRyYWkgaWQgZGEgbWVuc2FnZW0nKTsKZXhwZWN0X3RydWUoJHBhcnNlZFsnZnJvbV9tZSddID09PSBmYWxzZSwgJ2lkZW50aWZpY2EgbWVuc2FnZW0gcmVjZWJpZGEnKTsKZXhwZWN0X3RydWUoJHBhcnNlZFsnaWRlbnRpdGllcyddWzBdID09PSAnNTUxMTk5ODc2NTQzMkBzLndoYXRzYXBwLm5ldCcsICdwcmlvcml6YSB0ZWxlZm9uZSByZWFsIHNvYnJlIExJRCcpOwoKJG5lc3RlZCA9IFsKICAgICdldmVudCcgPT4gJ21lc3NhZ2VzLXVwc2VydCcsCiAgICAnZGF0YScgPT4gW1sKICAgICAgICAncGF5bG9hZCcgPT4gWwogICAgICAgICAgICAna2V5JyA9PiBbJ3JlbW90ZUppZCcgPT4gJzU1MTE5ODc2NTQzMjFAcy53aGF0c2FwcC5uZXQnLCAnZnJvbU1lJyA9PiBmYWxzZSwgJ2lkJyA9PiAnTVNHLTEzOC1CJ10sCiAgICAgICAgICAgICdtZXNzYWdlJyA9PiBbJ2V4dGVuZGVkVGV4dE1lc3NhZ2UnID0+IFsndGV4dCcgPT4gJ1NJTSddXSwKICAgICAgICBdLAogICAgXV0sCl07CiRuZXN0ZWRQYXJzZWQgPSB2MTM4X3BhcnNlX2luYm91bmQoJG5lc3RlZCk7CmV4cGVjdF90cnVlKHYxMzhfZXZlbnRfbmFtZSgkbmVzdGVkKSA9PT0gJ21lc3NhZ2VzLnVwc2VydCcsICdub3JtYWxpemEgbWVzc2FnZXMtdXBzZXJ0Jyk7CmV4cGVjdF90cnVlKCRuZXN0ZWRQYXJzZWRbJ3RleHQnXSA9PT0gJ3NpbScsICdleHRyYWkgY29tYW5kbyBlbSBwYXlsb2FkIGFuaW5oYWRvL2xpc3RhJyk7CmV4cGVjdF90cnVlKGluX2FycmF5KCc1NTExOTg3NjU0MzIxQHMud2hhdHNhcHAubmV0JywgJG5lc3RlZFBhcnNlZFsnaWRlbnRpdGllcyddLCB0cnVlKSwgJ2V4dHJhaSB0ZWxlZm9uZSBhbmluaGFkbycpOwoKJHNlbGZNZXNzYWdlID0gJHN0YW5kYXJkOwokc2VsZk1lc3NhZ2VbJ2RhdGEnXVsna2V5J11bJ2Zyb21NZSddID0gdHJ1ZTsKJHNlbGZNZXNzYWdlWydkYXRhJ11bJ2tleSddWydpZCddID0gJ01TRy0xMzgtU0VMRic7CiRzZWxmUGFyc2VkID0gdjEzOF9wYXJzZV9pbmJvdW5kKCRzZWxmTWVzc2FnZSk7CmV4cGVjdF90cnVlKCRzZWxmUGFyc2VkWydmcm9tX21lJ10gPT09IHRydWUsICdpZGVudGlmaWNhIHJlc3Bvc3RhIG5vIHByb3ByaW8gbnVtZXJvIGNvbmVjdGFkbycpOwpleHBlY3RfdHJ1ZSgkc2VsZlBhcnNlZFsndGV4dCddID09PSAnMScsICdwcmVzZXJ2YSBvIGNvbWFuZG8gZnJvbU1lIHBhcmEgYXNzb2NpYWNhbyBleGF0YScpOwoKZXhwZWN0X3RydWUodjEzOF9zYW1lX3Bob25lKCc1NTExOTk4NzY1NDMyJywgJzExOTg3NjU0MzInKSwgJ2FjZWl0YSB2YXJpYWNhbyBicmFzaWxlaXJhIGNvbSBub25vIGRpZ2l0bycpOwpleHBlY3RfdHJ1ZSghdjEzOF9zYW1lX3Bob25lKCc1NTExOTk4NzY1NDMyJywgJzU1MjE5ODc2NTQzMjEnKSwgJ25hbyBjcnV6YSB0ZWxlZm9uZXMgZGlmZXJlbnRlcycpOwoKJF9HRVQgPSBbJ3Rva2VuJyA9PiAndG9rZW4tc2VndXJvLTEzOCddOwokX1NFUlZFUiA9IFtdOwokYXV0aCA9IHYxMzhfd2ViaG9va19hdXRob3JpemF0aW9uKCRzdGFuZGFyZCk7CmV4cGVjdF90cnVlKCRhdXRoWydvayddID09PSB0cnVlICYmICRhdXRoWydzb3VyY2UnXSA9PT0gJ3dlYmhvb2tfdG9rZW4nLCAnYXV0b3JpemEgdG9rZW4gZGEgVVJMJyk7CgokX0dFVCA9IFtdOwokYXV0aCA9IHYxMzhfd2ViaG9va19hdXRob3JpemF0aW9uKCRzdGFuZGFyZCk7CmV4cGVjdF90cnVlKCRhdXRoWydvayddID09PSB0cnVlICYmICRhdXRoWydzb3VyY2UnXSA9PT0gJ2V2b2x1dGlvbl9hcGlrZXknLCAnYXV0b3JpemEgYXBpa2V5IG9maWNpYWwgcXVhbmRvIHByb3h5IHJlbW92ZSBxdWVyeSBzdHJpbmcnKTsKCiR3cm9uZyA9ICRzdGFuZGFyZDsKJHdyb25nWydhcGlrZXknXSA9ICdjaGF2ZS1pbmNvcnJldGEnOwokYXV0aCA9IHYxMzhfd2ViaG9va19hdXRob3JpemF0aW9uKCR3cm9uZyk7CmV4cGVjdF90cnVlKCRhdXRoWydvayddID09PSBmYWxzZSwgJ3JlamVpdGEgd2ViaG9vayBzZW0gY3JlZGVuY2lhbCB2YWxpZGEnKTsKCiRub3cgPSAyXzAwMF8wMDBfMDAwOwpleHBlY3RfdHJ1ZSh2MTM4X3RyYW5zaXRpb24oJ3BlbmRlbnRlJywgdHJ1ZSwgJG5vdyArIDYwMCwgJG5vdylbJ3N0YXR1cyddID09PSAnY29uZmlybWFkbycsICdjb25maXJtYSBlc2NhbGEgZnV0dXJhJyk7CmV4cGVjdF90cnVlKHYxMzhfdHJhbnNpdGlvbignZmFsdG91JywgdHJ1ZSwgJG5vdyAtIDYwMCwgJG5vdylbJ3N0YXR1cyddID09PSAndGFyZGUnLCAncmVjdXBlcmEgY29uZmlybWFjYW8gYXRyYXNhZGEnKTsKZXhwZWN0X3RydWUodjEzOF90cmFuc2l0aW9uKCdwZW5kZW50ZScsIGZhbHNlLCAkbm93ICsgNjAwLCAkbm93KVsnc3RhdHVzJ10gPT09ICdyZWN1c2FkbycsICdyZWdpc3RyYSByZWN1c2EnKTsKZXhwZWN0X3RydWUodjEzOF90cmFuc2l0aW9uKCdjb25maXJtYWRvJywgdHJ1ZSwgJG5vdyArIDYwMCwgJG5vdylbJ2FjdGlvbiddID09PSAnYWxyZWFkeV9jb25maXJtZWQnLCAnbWFudGVtIGlkZW1wb3RlbmNpYScpOwoKZGVmaW5lKCdFU0NBTEFTX1RPUF9WMTM4X1VOSVRfVEVTVCcsIHRydWUpOwpyZXF1aXJlIF9fRElSX18uJy9lc2NhbGFzdG9wLXYxLjMuOC9hcGkvd2ViaG9vay1lbnRyeS12MTM4LnBocCc7CmV4cGVjdF90cnVlKHYxMzhlX3RleHQoJG5lc3RlZCkgPT09ICdzaW0nLCAnZW50cmFkYSBkaXJldGEgcmVjb25oZWNlIGNvbWFuZG8gYW5pbmhhZG8nKTsKZXhwZWN0X3RydWUodjEzOGVfaXNfY29tbWFuZCgnMScpICYmIHYxMzhlX2lzX2NvbW1hbmQoJ27Do28gcG9zc28nKSwgJ2VudHJhZGEgZGlyZXRhIHJlY29uaGVjZSBjb25maXJtYWNhbyBlIHJlY3VzYScpOwpleHBlY3RfdHJ1ZSh2MTM4ZV9mcm9tX21lKCRzZWxmTWVzc2FnZSksICdlbnRyYWRhIGRpcmV0YSBpZGVudGlmaWNhIGZyb21NZSBzZW0gZW50cmVnYXIgYW50ZXMgYW8gcXVpeicpOwpleHBlY3RfdHJ1ZShpbl9hcnJheSgncGhvbmU6NTQzMicsIHYxMzhlX2lkZW50aXR5X2xhYmVscygkc2VsZk1lc3NhZ2UpLCB0cnVlKSwgJ2RpYWdub3N0aWNvIG1hc2NhcmEgbyB0ZWxlZm9uZSBlIHByZXNlcnZhIGlkZW50aWZpY2FjYW8nKTsKZXhwZWN0X3RydWUoIXYxMzhlX2lzX2NvbW1hbmQoJ2JvYSB0YXJkZScpLCAnZW50cmFkYSBkaXJldGEgcHJlc2VydmEgb3V0cm9zIGZsdXhvcycpOwoKJF9HRVQgPSBbJ3Rva2VuJyA9PiAndG9rZW4tc2VndXJvLTEzOCddOwokX1NFUlZFUiA9IFtdOwokR0xPQkFMU1snRVNDQUxBU19UT1BfV0VCSE9PS19CT0RZX1YxMzgnXSA9ICRzZWxmTWVzc2FnZTsKdHJ5IHsKICAgIHYxMzhfY29uZmlybWF0aW9uX3JvdXRlcl9oYW5kbGUoKTsKICAgIGV4cGVjdF90cnVlKGZhbHNlLCAncm90ZWFkb3IgZGV2ZXJpYSBmaW5hbGl6YXIgYSByZXNwb3N0YSBmcm9tTWUnKTsKfSBjYXRjaCAoVGVzdE91dCAkcmVzdWx0KSB7CiAgICBleHBlY3RfdHJ1ZSgkcmVzdWx0LT5zdGF0dXMgPT09IDIwMCwgJ3JvdGVhZG9yIHJlc3BvbmRlIEhUVFAgMjAwIGFvIGZyb21NZSB2YWxpZG8nKTsKICAgIGV4cGVjdF90cnVlKCgkcmVzdWx0LT5wYXlsb2FkWydhY3Rpb24nXSA/PyAnJykgPT09ICdjb25maXJtZWRfdjEzOCcsICdmcm9tTWUgY29uZmlybWEgYSBub3RpZmljYWNhbyBleGF0YScpOwp9CmV4cGVjdF90cnVlKCRmYWtlU2NhbGVTdGF0dXMgPT09ICdjb25maXJtYWRvJywgJ2Zyb21NZSBhdHVhbGl6YSBhIGVzY2FsYSBjb3JyZXRhJyk7CmV4cGVjdF90cnVlKGNvdW50KCRmYWtlUmVwbGllcykgPT09IDEsICdmcm9tTWUgZW52aWEgYSBjb25maXJtYWNhbyBkZSB2b2x0YSBubyBXaGF0c0FwcCcpOwoKZWNobyAiT0sgd2ViaG9vayB2MS4zLjhcbiI7Cg==
+        run: |
+          printf '%s' "${WEBHOOK_TEST_B64}" | base64 --decode > webhook-v138-test.php
+          php webhook-v138-test.php
+
+      - name: Publish official release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_SHA256: 70adb502436b2556db7fc51dd6f5dcc5e11d38faf6713eb2897fa3c1dc4b5857
+        run: |
+          if gh release view v1.3.8 --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo 'Release v1.3.8 already exists' >&2
+            exit 1
+          fi
+          cp escalastop-cpanel-v1.3.8.zip escalastop-cpanel.zip
+          printf '%s\n' \
+            'Escalas Top v1.3.8' \
+            '' \
+            '- Corrige a resposta 1/2 quando o teste usa o mesmo WhatsApp conectado à Evolution (fromMe).' \
+            '- Impede o roteador do quiz de consumir silenciosamente o comando antes da confirmação de escala.' \
+            '- Uma mensagem fromMe só é aceita quando existe uma notificação exata enviada pelo sistema para o mesmo telefone.' \
+            '- Registra novamente o webhook MESSAGES_UPSERT na entrada direta v1.3.8.' \
+            '- Adiciona log na porta de entrada para diagnosticar inclusive mensagens que ainda não chegaram ao roteador.' \
+            '- Mantém quiz, trocas, justificativas, mapa, CRON e os demais recursos existentes.' \
+            '- Pacote aprovado por lint PHP, regressão completa de fromMe e verificação de integridade do ZIP.' \
+            '' \
+            "SHA-256: ${PACKAGE_SHA256}" > release-notes.md
+          gh release create v1.3.8 escalastop-cpanel.zip \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title 'Escalas Top v1.3.8' \
+            --notes-file release-notes.md
