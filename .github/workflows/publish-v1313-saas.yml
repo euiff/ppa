@@ -114,7 +114,7 @@ jobs:
           grep -Fq 'Escala com Propósito' pkg/index.html
           grep -Fq '/subscription-guard.js' pkg/index.html
           grep -Fq 'Mercado Pago' pkg/master-pagamentos.html
-          grep -Fq '10 dias' pkg/comece.html
+          grep -Fq 'trial_days' pkg/comece.html
           grep -Fq 'vendas.html' pkg/subscription-guard.js
           python3 - <<'PY'
           import json
