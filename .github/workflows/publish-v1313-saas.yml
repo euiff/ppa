@@ -1,0 +1,147 @@
+name: Publish Escalas Top v1.3.13 SaaS
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1313-saas.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.12 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.12 -p escalastop-cpanel.zip --clobber
+          echo '56115b9e20de39d1fe1df7da23b1f2aecda2caf31f8f0d5b68cd80947b89a57a  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.12"
+
+      - name: Restore v1.3.13 SaaS overlay
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, pathlib, re
+          p=pathlib.Path('.pkg_v1313_src/bundle.tgz.b64')
+          s=re.sub(r'\s+','',p.read_text(encoding='utf-8'))
+          raw=base64.b64decode(s + '='*((4-len(s)%4)%4), validate=False)
+          pathlib.Path('v1313_bundle.tgz').write_bytes(raw)
+          PY
+          echo 'bd07ec60f9a4fc9f4f7572dd1fc35944a16e9c29bd432454c01808634851045f  v1313_bundle.tgz' | sha256sum --check --strict
+          mkdir overlay
+          tar -xzf v1313_bundle.tgz -C overlay
+          cp -f overlay/api/*.php pkg/api/
+          cp -f overlay/subscription-guard.js pkg/
+          cp -f overlay/vendas.html pkg/
+          cp -f overlay/comece.html pkg/
+          cp -f overlay/planos.html pkg/
+          cp -f overlay/master-pagamentos.html pkg/
+
+      - name: Brand web app and enable subscription guard
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re, hashlib
+
+          idx=Path('pkg/index.html')
+          s=idx.read_text(encoding='utf-8')
+          s=s.replace('EscalaFacil - Gestão Ministerial','Escala com Propósito - Gestão Ministerial')
+          s=s.replace('apple-mobile-web-app-title" content="EscalaFacil"','apple-mobile-web-app-title" content="Escala com Propósito"')
+          if '/subscription-guard.js' not in s:
+              s=s.replace('</body>','  <script src="/subscription-guard.js" defer></script>\n  </body>')
+          idx.write_text(s,encoding='utf-8')
+
+          mp=Path('pkg/manifest.webmanifest')
+          data=json.loads(mp.read_text(encoding='utf-8'))
+          data['name']='Escala com Propósito - Gestão Ministerial'
+          data['short_name']='Escala com Propósito'
+          data['description']='Gestão de voluntários, escalas, presença e comunicação para igrejas'
+          data['display']='standalone'
+          data['display_override']=['standalone','minimal-ui']
+          mp.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+
+          sw=Path('pkg/sw.js')
+          txt=sw.read_text(encoding='utf-8')
+          rev=hashlib.md5(idx.read_bytes()).hexdigest()
+          txt,n=re.subn(r'(url:"index\.html",revision:")[0-9a-f]+("\})',r'\g<1>'+rev+r'\2',txt,count=1)
+          if n != 1:
+              raise SystemExit('index.html revision not found in sw.js')
+          sw.write_text(txt,encoding='utf-8')
+          PY
+          printf '1.3.13\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.13.md <<'EOF'
+          # Escala com Propósito v1.3.13
+
+          Estrutura comercial SaaS e preparação do aplicativo Android.
+
+          - Nova página pública de vendas em `vendas.html`.
+          - Cadastro público com 10 dias de teste grátis em `comece.html`.
+          - Assinatura por igreja e bloqueio automático após o período de teste.
+          - Página de planos em `planos.html`.
+          - Painel Master de planos e Mercado Pago em `master-pagamentos.html`.
+          - Checkout Mercado Pago criado no servidor, sem expor Access Token no navegador.
+          - Webhook de pagamento aprovado libera/renova automaticamente a igreja.
+          - Planos padrão: Mensal R$ 39,90 / Semestral R$ 199,90 / Anual R$ 349,90, todos editáveis pelo Master.
+          - Teste grátis padrão de 10 dias, editável pelo Master.
+          - Nome visual atualizado para Escala com Propósito.
+          - PWA deixa de solicitar fullscreen, evitando invasão das barras do sistema em instalações web.
+          - Mantém todas as correções anteriores de WhatsApp, fila de pendências, privacidade e exclusão de conta.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.13.md
+
+      - name: Validate package
+        run: |
+          set -euo pipefail
+          for f in \
+            pkg/api/billing_lib_v1313.php \
+            pkg/api/subscription-status.php \
+            pkg/api/billing-public.php \
+            pkg/api/billing-master.php \
+            pkg/api/trial-register.php \
+            pkg/api/billing-checkout.php \
+            pkg/api/mercadopago-webhook.php; do php -l "$f"; done
+          test "$(cat pkg/VERSION)" = "1.3.13"
+          grep -Fq 'Escala com Propósito' pkg/index.html
+          grep -Fq '/subscription-guard.js' pkg/index.html
+          grep -Fq 'Mercado Pago' pkg/master-pagamentos.html
+          grep -Fq '10 dias' pkg/comece.html
+          grep -Fq 'vendas.html' pkg/subscription-guard.js
+          python3 - <<'PY'
+          import json
+          m=json.load(open('pkg/manifest.webmanifest',encoding='utf-8'))
+          assert m['short_name']=='Escala com Propósito'
+          assert 'fullscreen' not in m.get('display_override',[])
+          PY
+
+      - name: Build and publish v1.3.13
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -f escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escalastop-cpanel.zip .)
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.13.txt
+          gh release delete v1.3.13 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.13 escalastop-cpanel.zip SHA256-v1.3.13.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala com Propósito v1.3.13' \
+            --notes-file pkg/ATUALIZACAO-v1.3.13.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-com-proposito-cpanel-v1.3.13
+          path: |
+            escalastop-cpanel.zip
+            SHA256-v1.3.13.txt
+          retention-days: 14
