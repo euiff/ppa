@@ -1,0 +1,232 @@
+name: Publish Escalas Top v1.3.11
+
+on:
+  push:
+    paths:
+      - .github/workflows/publish-v1311.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.10 -p escalastop-cpanel.zip --clobber
+          echo 'a67f995e20be591f815ead0477198527cbb3ea0e54052a4af94c7d54d62aad5a  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg && unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.10"
+
+      - name: Apply v1.3.11 pending queue
+        run: |
+          set -euo pipefail
+          base64 -d .pkg_v1311_src/pending_router_v1311.php.gz.b64 | gunzip > pkg/api/pending_router_v1311.php
+          echo '7c67a24742a4045192560c8d6405b0020eb07bcdd957604da9e7d73531dc5604  pkg/api/pending_router_v1311.php' | sha256sum --check --strict
+
+          python - <<'PY'
+          from pathlib import Path
+          api=Path('pkg/api')
+
+          # Confirmation router v1.3.11 inherits the proven v1.3.10 logic.
+          s=(api/'confirmation_router_v1310.php').read_text()
+          s=s.replace('v1310','v1311').replace('V1310','V1311').replace('v1.3.10','v1.3.11')
+          (api/'confirmation_router_v1311.php').write_text(s)
+
+          # Webhook v1.3.11: pending queue runs before scale/quiz routing.
+          s=(api/'webhook-entry-v1310.php').read_text()
+          s=s.replace('v1310e','v1311e').replace('V1310','V1311').replace('v1310','v1311').replace('v1.3.10','v1.3.11')
+          old="function v1311e_is_command(string $text):bool{if($text==='')return false;if(in_array($text,['1','2','sim','s','yes','não','nao','n','no','confirmar','confirmo','confirmado','vou','estarei','ok','recusar','recuso'],true))return true;return str_starts_with($text,'confirm')||str_contains($text,'não posso')||str_contains($text,'nao posso')||str_contains($text,'não vou')||str_contains($text,'nao vou');}"
+          new="function v1311e_is_command(string $text):bool{if($text==='')return false;if(preg_match('/^\\d{1,2}$/',$text))return true;if(in_array($text,['sim','s','yes','não','nao','n','no','confirmar','confirmo','confirmado','vou','estarei','ok','recusar','recuso','menu','pendencia','pendencias','pendência','pendências','opcoes','opções','voltar','pular'],true))return true;return str_starts_with($text,'confirm')||str_contains($text,'não posso')||str_contains($text,'nao posso')||str_contains($text,'não vou')||str_contains($text,'nao vou');}"
+          if old not in s: raise SystemExit('command matcher anchor missing')
+          s=s.replace(old,new,1)
+          s=s.replace("if(!$upsert||!v1311e_is_command($text)){require __DIR__.'/webhook.php';exit;}","if(!$upsert||$text===''){require __DIR__.'/webhook.php';exit;}",1)
+          start=s.index("    $GLOBALS['ESCALAS_TOP_WEBHOOK_BODY_V1311']=$body;")
+          end=s.index("    if(!empty($GLOBALS['ESCALAS_TOP_V1311_ALLOW_LEGACY'])){",start)
+          routing="""    $GLOBALS['ESCALAS_TOP_WEBHOOK_BODY_V1311']=$body;
+              $GLOBALS['ESCALAS_TOP_WEBHOOK_BODY_V135']=$body;
+
+              $stage='confirmation_router_load';
+              require_once __DIR__.'/confirmation_router_v1311.php';
+              v1311e_trace('phase_ok',['stage'=>$stage,'handler'=>function_exists('v1311_confirmation_router_handle')]);
+
+              $stage='quiz_router_load';
+              if(is_file(__DIR__.'/quiz_router_v131.php')) require_once __DIR__.'/quiz_router_v131.php';
+              v1311e_trace('phase_ok',['stage'=>$stage,'handler'=>function_exists('v131_quiz_router_handle')]);
+
+              $stage='pending_router_load';
+              require_once __DIR__.'/pending_router_v1311.php';
+              v1311e_trace('phase_ok',['stage'=>$stage,'handler'=>function_exists('v1311_pending_router_handle')]);
+
+              $stage='pending_router_handle';
+              if(function_exists('v1311_pending_router_handle')&&v1311_pending_router_handle()){
+                  v1311e_trace('handled',['stage'=>$stage]);
+                  v1311e_out(['ok'=>true,'action'=>'pending_router_v1311']);
+              }
+
+              $stage='confirmation_router_handle';
+              if(function_exists('v1311_confirmation_router_handle')&&v1311_confirmation_router_handle()){
+                  v1311e_trace('handled',['stage'=>$stage]);
+                  exit;
+              }
+
+              $stage='quiz_router';
+              if(!$fromMe&&function_exists('v131_quiz_router_handle')){
+                  try{
+                      if(v131_quiz_router_handle()){
+                          v1311e_trace('handled',['stage'=>'quiz_router']);
+                          exit;
+                      }
+                  }catch(Throwable $quizError){
+                      v1311e_trace('module_exception',['stage'=>'quiz_router','type'=>get_class($quizError),'message'=>substr($quizError->getMessage(),0,300),'file'=>basename($quizError->getFile()),'line'=>$quizError->getLine()]);
+                  }
+              }
+
+          """.replace('              ','    ')
+          s=s[:start]+routing+s[end:]
+          anchor="""    if(!empty($GLOBALS['ESCALAS_TOP_V1311_ALLOW_LEGACY'])){
+                  $stage='legacy_bridge';
+                  v1311e_trace('legacy_bridge',['reason'=>'router_requested']);
+                  v1311e_legacy($raw);
+              }
+
+              v1311e_trace('handled_without_legacy',['stage'=>$stage]);
+          """.replace('              ','    ')
+          replacement="""    if(!empty($GLOBALS['ESCALAS_TOP_V1311_ALLOW_LEGACY'])){
+                  $stage='legacy_bridge';
+                  v1311e_trace('legacy_bridge',['reason'=>'router_requested']);
+                  v1311e_legacy($raw);
+              }
+
+              if(!v1311e_is_command($text)){
+                  $stage='legacy_bridge';
+                  v1311e_trace('legacy_bridge',['reason'=>'unhandled_free_text']);
+                  v1311e_legacy($raw);
+              }
+
+              v1311e_trace('handled_without_legacy',['stage'=>$stage]);
+          """.replace('              ','    ')
+          if anchor not in s: raise SystemExit('legacy fallback anchor missing')
+          s=s.replace(anchor,replacement,1)
+          (api/'webhook-entry-v1311.php').write_text(s)
+
+          s=(api/'webhook_sync_v1310.php').read_text().replace('v1310','v1311').replace('V1310','V1311').replace('v1.3.10','v1.3.11')
+          (api/'webhook_sync_v1311.php').write_text(s)
+
+          p=api/'automation_v130.php'; s=p.read_text()
+          s=s.replace("require_once __DIR__.'/webhook_sync_v1310.php';","require_once __DIR__.'/webhook_sync_v1311.php';")
+          s=s.replace("'version'=>'1.3.10'","'version'=>'1.3.11'")
+          s=s.replace('v1310_sync_evolution_webhook()','v1311_sync_evolution_webhook()')
+          p.write_text(s)
+          PY
+
+          cat > pkg/api/.htaccess <<'EOF'
+          # Escalas Top v1.3.11 - fila de pendencias WhatsApp
+          <IfModule mod_rewrite.c>
+          RewriteEngine On
+          RewriteCond %{QUERY_STRING} !(^|&)v1311_legacy=1(&|$) [NC]
+          RewriteRule ^webhook(?:\.php)?(?:/messages[-_.]upsert)?/?$ webhook-entry-v1311.php [L,QSA,NC]
+          </IfModule>
+          EOF
+          sed -i 's/^          //' pkg/api/.htaccess
+
+          mkdir -p pkg/database/migrations
+          cat > pkg/database/migrations/202609030001_whatsapp_pending_menu_v1311.sql <<'EOF'
+          CREATE TABLE IF NOT EXISTS whatsapp_pending_sessions (
+              id VARCHAR(36) NOT NULL PRIMARY KEY,
+              sender VARCHAR(32) NOT NULL,
+              voluntario_id VARCHAR(36) NULL,
+              state VARCHAR(24) NOT NULL DEFAULT 'menu',
+              selected_type VARCHAR(24) NULL,
+              selected_id VARCHAR(64) NULL,
+              options_json LONGTEXT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              expires_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              KEY idx_whatsapp_pending_sender (sender,state,expires_at),
+              KEY idx_whatsapp_pending_voluntario (voluntario_id,state,expires_at)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          EOF
+          sed -i 's/^          //' pkg/database/migrations/202609030001_whatsapp_pending_menu_v1311.sql
+
+          printf '1.3.11\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.11.md <<'EOF'
+          # Escalas Top v1.3.11
+
+          Organização das respostas acumuladas no WhatsApp.
+
+          - Cria uma fila unificada de pendências de escala e quiz por voluntário.
+          - Com várias pendências, a primeira resposta numérica escolhe o item; não altera escala nem quiz.
+          - Depois da escolha, o item fica travado por até 60 minutos e a resposta seguinte vale somente para ele.
+          - Mostra data, horário, culto, departamento e função antes da confirmação da escala.
+          - Quizzes mostram a escala correspondente e aceitam corretamente as etapas de 1 a 5.
+          - `MENU` lista novamente as pendências a qualquer momento.
+          - Quizzes acumulados dos últimos 7 dias entram na fila.
+          - O motivo de uma recusa continua ligado à escala escolhida.
+          - Eventos duplicados da Evolution não pulam etapas do menu.
+          - Com uma única pendência, a resposta continua direta.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.11.md
+
+      - name: Validate v1.3.11
+        run: |
+          set -euo pipefail
+          php -l pkg/api/pending_router_v1311.php
+          php -l pkg/api/confirmation_router_v1311.php
+          php -l pkg/api/webhook-entry-v1311.php
+          php -l pkg/api/webhook_sync_v1311.php
+          php -l pkg/api/automation_v130.php
+          test "$(cat pkg/VERSION)" = "1.3.11"
+          grep -Fq 'pending_router_v1311.php' pkg/api/webhook-entry-v1311.php
+          grep -Fq 'webhook-entry-v1311.php' pkg/api/.htaccess
+          grep -Fq 'webhook-entry-v1311.php?token=' pkg/api/webhook_sync_v1311.php
+          grep -Fq "webhook_sync_v1311.php" pkg/api/automation_v130.php
+          grep -Fq 'v1311_sync_evolution_webhook' pkg/api/automation_v130.php
+
+          cat > pkg/test_v1311.php <<'PHP'
+          <?php
+          declare(strict_types=1);
+          define('ESCALAS_TOP_V1311_UNIT_TEST', true);
+          require __DIR__.'/api/webhook-entry-v1311.php';
+          require __DIR__.'/api/confirmation_router_v1311.php';
+          require __DIR__.'/api/quiz_router_v131.php';
+          require __DIR__.'/api/pending_router_v1311.php';
+          foreach(['1','2','3','4','5','10','menu','pendências','pular'] as $x) if(!v1311e_is_command($x)) throw new Exception('matcher '.$x);
+          $opts=[['type'=>'scale','id'=>'s1','label'=>'Escala 05/09'],['type'=>'scale','id'=>'s2','label'=>'Escala 10/09'],['type'=>'quiz','id'=>'q1','label'=>'Quiz 29/08']];
+          $m=v1311p_menu_text($opts); foreach(['*1* -','*2* -','*3* -','MENU'] as $n) if(!str_contains($m,$n)) throw new Exception('menu '.$n);
+          $q=v1311p_quiz_question(['data'=>'2026-08-29','horario'=>'19:00:00','culto_nome'=>'Culto','etapa'=>2]); if(!str_contains($q,'*5* - 🤩 Ótimo')) throw new Exception('quiz 1-5');
+          $body=['event'=>'messages.upsert','data'=>['key'=>['remoteJid'=>'5564999900599@s.whatsapp.net','fromMe'=>false,'id'=>'M1'],'message'=>['conversation'=>'3']],'sender'=>'556499994047@s.whatsapp.net'];
+          if(v1311e_text($body)!=='3') throw new Exception('numeric parser');
+          $parsed=v1311_parse_inbound($body); foreach($parsed['identities'] as $id) if(str_contains($id,'4047')) throw new Exception('instance sender leak');
+          if(!v1311_same_phone('64 99990-0599','5564999900599')) throw new Exception('phone normalization');
+          echo "OK v1.3.11 queue regression\n";
+          PHP
+          sed -i 's/^          //' pkg/test_v1311.php
+          php pkg/test_v1311.php
+          rm pkg/test_v1311.php
+
+      - name: Build and publish v1.3.11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escalastop-cpanel.zip .)
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.11.txt
+          gh release delete v1.3.11 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.11 escalastop-cpanel.zip SHA256-v1.3.11.txt --target "$GITHUB_SHA" --title 'Escalas Top v1.3.11' --notes-file pkg/ATUALIZACAO-v1.3.11.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escalastop-cpanel-v1.3.11
+          path: |
+            escalastop-cpanel.zip
+            SHA256-v1.3.11.txt
+          retention-days: 14
