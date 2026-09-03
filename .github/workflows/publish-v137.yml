@@ -55,7 +55,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PACKAGE_SHA256: 24f2a029932918c6438df81742afd51ebfd922d5ddef37203db5ce27a1437507
         run: |
-          if gh release view v1.3.7 >/dev/null 2>&1; then
+          if gh release view v1.3.7 --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo 'Release v1.3.7 already exists' >&2
             exit 1
           fi
@@ -73,5 +73,6 @@ jobs:
             '' \
             "SHA-256: ${PACKAGE_SHA256}" > release-notes.md
           gh release create v1.3.7 escalastop-cpanel.zip \
+            --repo "${GITHUB_REPOSITORY}" \
             --title 'Escalas Top v1.3.7' \
             --notes-file release-notes.md
