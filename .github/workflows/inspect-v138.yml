@@ -22,7 +22,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          echo "inspection trigger: 2026-09-03"
           : > package.b64
           for blob in ${PACKAGE_BLOBS}; do
             gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" --jq .content \
@@ -34,18 +33,20 @@ jobs:
           unzip -q escalastop-cpanel-v1.3.8.zip -d escalastop-v1.3.8
           test "$(cat escalastop-v1.3.8/VERSION)" = "1.3.8"
 
-      - name: Capture webhook diagnostics
+      - name: Capture package source and routing
         run: |
           set -euo pipefail
           mkdir inspection
           cp -a escalastop-v1.3.8/api inspection/api
           cp escalastop-v1.3.8/VERSION inspection/VERSION
+          find escalastop-v1.3.8 -maxdepth 3 -type f | sort > inspection/package-files.txt
           grep -RniE 'token_present|command|fromMe_confirmation_allowed|status_confirmacao|notification_logs|sendText|send_message|evolution' escalastop-v1.3.8/api > inspection/grep.txt || true
 
       - name: Upload extracted API source
         uses: actions/upload-artifact@v4
         with:
-          name: escalastop-v138-api-source
+          name: escalastop-v138-api-source-hidden
           path: inspection/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
