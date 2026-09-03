@@ -16,11 +16,15 @@ jobs:
       - name: Recover exact package blob
         env:
           GH_TOKEN: ${{ github.token }}
-          PACKAGE_BLOB: 30c5642fb5e9dddee6aa8b89218f3d8626a76b7f
+          PACKAGE_BLOBS: f45a339fd66a707315bc66e551edfcefae63b5de a80fdd10d51ddb637f0c16344c008299d514f04a d4effc7f00d87843e03c6b7acad0c3013a25669c 78ea92b1de43a7f00e74e3b6661cba55d19ea7cb 27f273f110f7e3334af1a0eb96fca7589ac86ba4 8cda9521924f0a9a7fc0618ba081356fe5cb3875
           PACKAGE_SHA256: 24f2a029932918c6438df81742afd51ebfd922d5ddef37203db5ce27a1437507
         run: |
-          gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/${PACKAGE_BLOB}" --jq .content \
-            | tr -d '\n' | base64 --decode > escalastop-cpanel-v1.3.7.zip
+          : > package.b64
+          for blob in ${PACKAGE_BLOBS}; do
+            gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" --jq .content \
+              | tr -d '\n' | base64 --decode >> package.b64
+          done
+          base64 --decode package.b64 > escalastop-cpanel-v1.3.7.zip
           echo "${PACKAGE_SHA256}  escalastop-cpanel-v1.3.7.zip" | sha256sum --check --strict
           unzip -t escalastop-cpanel-v1.3.7.zip
           mkdir escalastop-v1.3.7
