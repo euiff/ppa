@@ -1,0 +1,50 @@
+name: Inspect Escalas Top v1.3.8 package
+
+on:
+  push:
+    paths:
+      - .github/workflows/inspect-v138.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_BLOBS: 6836e3045b858a30c2b6918f4b966e67fbac2232 b7d934407bd19e7ef2bf88798f407e7a57865517 269c8ab77155d8616b25b963aeeb891f0c9fe713 28cbee68eb1501849614a557a492db20143ed4f3 3810f9948efcd8c60e818ee6aa5e03af83f378b1 ac9438717709e6dfe73a9ef154b50a037281181b
+  PACKAGE_SHA256: 70adb502436b2556db7fc51dd6f5dcc5e11d38faf6713eb2897fa3c1dc4b5857
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconstruct exact v1.3.8 package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : > package.b64
+          for blob in ${PACKAGE_BLOBS}; do
+            gh api "/repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" --jq .content \
+              | tr -d '\n' | base64 --decode >> package.b64
+          done
+          base64 --decode package.b64 > escalastop-cpanel-v1.3.8.zip
+          echo "${PACKAGE_SHA256}  escalastop-cpanel-v1.3.8.zip" | sha256sum --check --strict
+          mkdir escalastop-v1.3.8
+          unzip -q escalastop-cpanel-v1.3.8.zip -d escalastop-v1.3.8
+          test "$(cat escalastop-v1.3.8/VERSION)" = "1.3.8"
+
+      - name: Capture webhook diagnostics
+        run: |
+          set -euo pipefail
+          mkdir inspection
+          cp -a escalastop-v1.3.8/api inspection/api
+          cp escalastop-v1.3.8/VERSION inspection/VERSION
+          grep -RniE 'token_present|command|fromMe_confirmation_allowed|status_confirmacao|notification_logs|sendText|send_message|evolution' escalastop-v1.3.8/api > inspection/grep.txt || true
+
+      - name: Upload extracted API source
+        uses: actions/upload-artifact@v4
+        with:
+          name: escalastop-v138-api-source
+          path: inspection/
+          if-no-files-found: error
+          retention-days: 7
