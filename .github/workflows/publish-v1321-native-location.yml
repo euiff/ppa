@@ -1,0 +1,195 @@
+name: Publish Escala de Proposito v1.3.21 Native Location
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1321-native-location.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.20 -p escala-de-proposito-cpanel.zip --clobber
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.20"
+
+      - name: Add authenticated native location heartbeat
+        run: |
+          set -euo pipefail
+          cat > pkg/api/location-heartbeat.php <<'PHP'
+          <?php
+          declare(strict_types=1);
+          require __DIR__.'/bootstrap.php';
+          require_once __DIR__.'/timezone_v133.php';
+
+          try {
+              $caller = require_auth();
+              $ctx = user_context();
+              $uid = (string)($caller['id'] ?? $ctx['id'] ?? '');
+              if ($uid === '') out(['data'=>null,'error'=>['message'=>'Usuário não identificado']],401);
+
+              $igrejaId = (string)($ctx['igreja_id'] ?? '');
+              if ($igrejaId === '') {
+                  $q = db()->prepare('SELECT igreja_id FROM profiles WHERE id=? LIMIT 1');
+                  $q->execute([$uid]);
+                  $igrejaId = (string)($q->fetchColumn() ?: '');
+              }
+              if ($igrejaId === '') out(['data'=>null,'error'=>['message'=>'Usuário sem igreja vinculada']],400);
+
+              $req = input_json();
+              $lat = isset($req['latitude']) ? (float)$req['latitude'] : NAN;
+              $lng = isset($req['longitude']) ? (float)$req['longitude'] : NAN;
+              $accuracy = isset($req['accuracy']) && is_numeric($req['accuracy']) ? max(0.0,(float)$req['accuracy']) : null;
+              if (!is_finite($lat) || !is_finite($lng) || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+                  out(['data'=>null,'error'=>['message'=>'Coordenadas inválidas']],400);
+              }
+
+              $tzName = v133_apply_timezone($igrejaId);
+              $tz = new DateTimeZone($tzName);
+              $now = new DateTimeImmutable('now',$tz);
+              $from = $now->modify('-1 day')->format('Y-m-d');
+              $to = $now->modify('+1 day')->format('Y-m-d');
+
+              $q = db()->prepare("SELECT e.id,e.data,c.horario
+                  FROM escala_itens ei
+                  JOIN escalas e ON e.id=ei.escala_id
+                  LEFT JOIN cultos c ON c.id=e.culto_id
+                  WHERE ei.voluntario_id=? AND e.igreja_id=?
+                    AND e.status='publicado'
+                    AND ei.status_confirmacao='confirmado'
+                    AND e.data BETWEEN ? AND ?");
+              $q->execute([$uid,$igrejaId,$from,$to]);
+
+              $eligible = false;
+              $escalaId = null;
+              $secondsToStart = null;
+              $nowTs = $now->getTimestamp();
+              foreach ($q->fetchAll() ?: [] as $row) {
+                  $eventTs = v133_event_timestamp((string)$row['data'],(string)($row['horario'] ?? ''),$igrejaId);
+                  if (!$eventTs) continue;
+                  $delta = $eventTs - $nowTs;
+                  if ($delta >= 0 && $delta <= 3600) {
+                      $eligible = true;
+                      $escalaId = (string)$row['id'];
+                      $secondsToStart = $delta;
+                      break;
+                  }
+              }
+
+              db()->exec("CREATE TABLE IF NOT EXISTS volunteer_locations (
+                  user_id VARCHAR(64) NOT NULL PRIMARY KEY,
+                  igreja_id VARCHAR(64) NOT NULL,
+                  latitude DECIMAL(10,7) NOT NULL,
+                  longitude DECIMAL(10,7) NOT NULL,
+                  accuracy DECIMAL(10,2) NULL,
+                  updated_at DATETIME NOT NULL,
+                  KEY idx_volunteer_locations_igreja (igreja_id),
+                  KEY idx_volunteer_locations_updated (updated_at)
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+              if (!$eligible) {
+                  $d = db()->prepare('DELETE FROM volunteer_locations WHERE user_id=?');
+                  $d->execute([$uid]);
+                  out(['data'=>[
+                      'accepted'=>false,
+                      'reason'=>'outside_tracking_window',
+                      'server_now'=>$now->format(DATE_ATOM),
+                      'timezone'=>$tzName
+                  ],'error'=>null]);
+              }
+
+              // Delete + insert avoids relying on a pre-existing UNIQUE definition from older installs.
+              $pdo = db();
+              $pdo->beginTransaction();
+              try {
+                  $d = $pdo->prepare('DELETE FROM volunteer_locations WHERE user_id=?');
+                  $d->execute([$uid]);
+                  $i = $pdo->prepare('INSERT INTO volunteer_locations(user_id,igreja_id,latitude,longitude,accuracy,updated_at) VALUES(?,?,?,?,?,NOW())');
+                  $i->execute([$uid,$igrejaId,$lat,$lng,$accuracy]);
+                  $pdo->commit();
+              } catch (Throwable $e) {
+                  if ($pdo->inTransaction()) $pdo->rollBack();
+                  throw $e;
+              }
+
+              out(['data'=>[
+                  'accepted'=>true,
+                  'escala_id'=>$escalaId,
+                  'seconds_to_start'=>$secondsToStart,
+                  'accuracy'=>$accuracy,
+                  'server_now'=>$now->format(DATE_ATOM),
+                  'timezone'=>$tzName
+              ],'error'=>null]);
+          } catch (Throwable $e) {
+              out(['data'=>null,'error'=>['message'=>$e->getMessage()]],500);
+          }
+          PHP
+          sed -i 's/^          //' pkg/api/location-heartbeat.php
+          printf '1.3.21\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.21.md <<'EOF'
+          # Escala de Propósito v1.3.21
+
+          Correção definitiva do rastreamento no APK Android.
+
+          - Adiciona `/api/location-heartbeat.php` para receber a posição lida diretamente pelo Android.
+          - O endpoint exige usuário autenticado e identifica a igreja pelo próprio login.
+          - A posição só é gravada quando existe escala publicada e confirmada começando nos próximos 60 minutos.
+          - Fora da janela permitida, qualquer posição anterior do usuário é removida.
+          - Mantém o rastreador web existente como fallback.
+          - Não altera CRON, webhook do WhatsApp, confirmação de escalas ou pagamentos.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.21.md
+
+      - name: Validate package
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.21"
+          php -l pkg/api/location-heartbeat.php
+          grep -Fq "outside_tracking_window" pkg/api/location-heartbeat.php
+          grep -Fq "seconds_to_start" pkg/api/location-heartbeat.php
+          grep -Fq "volunteer_locations" pkg/api/location-heartbeat.php
+          php -l pkg/api/cron.php >/dev/null
+          php -l pkg/api/webhook-entry-v1311.php >/dev/null
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.3.21.txt
+
+      - name: Publish v1.3.21
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.3.21 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.21 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.3.21.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.21' \
+            --notes-file pkg/ATUALIZACAO-v1.3.21.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.21
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.3.21.txt
+          retention-days: 14
