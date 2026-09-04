@@ -30,14 +30,8 @@ jobs:
       - name: Restore v1.3.14 commercial overlay
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import base64, pathlib, re
-          p=pathlib.Path('.pkg_v1314_src/bundle.tgz.b64')
-          s=re.sub(r'\s+','',p.read_text(encoding='utf-8'))
-          raw=base64.b64decode(s + '='*((4-len(s)%4)%4), validate=False)
-          pathlib.Path('v1314_bundle.tgz').write_bytes(raw)
-          print('decoded bytes:', len(raw))
-          PY
+          cat .pkg_v1314_src/part01.txt .pkg_v1314_src/part02.txt .pkg_v1314_src/part03.txt .pkg_v1314_src/part04.txt .pkg_v1314_src/part05.txt | tr -d '\r\n ' > v1314_bundle.b64
+          base64 -d v1314_bundle.b64 > v1314_bundle.tgz
           sha256sum v1314_bundle.tgz
           tar -tzf v1314_bundle.tgz >/dev/null
           mkdir overlay
@@ -48,7 +42,7 @@ jobs:
           test -s overlay/api/billing-master-v1314.php
           cp -a overlay/. pkg/
 
-      - name: Patch compiled frontend branding and compact mobile dashboard
+      - name: Patch branding and compact mobile dashboard
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -59,6 +53,12 @@ jobs:
           for old in ('EscalaFacil','Escala Fácil','Escalas Top'):
               s=s.replace(old,'Escala com Propósito')
           js.write_text(s,encoding='utf-8')
+
+          for name in ('privacidade.html','termos.html','excluir-conta.html'):
+              p=Path('pkg')/name
+              if p.exists():
+                  t=p.read_text(encoding='utf-8').replace('Escala de Propósito','Escala com Propósito')
+                  p.write_text(t,encoding='utf-8')
 
           css=Path('pkg/assets/index-Iz5fvB3Y.css')
           c=css.read_text(encoding='utf-8')
