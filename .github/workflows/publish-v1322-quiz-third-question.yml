@@ -1,0 +1,101 @@
+name: Publish Escala de Proposito v1.3.22 Quiz Third Question
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1322-quiz-third-question.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.21
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.21 -p escala-de-proposito-cpanel.zip --clobber
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.21"
+
+      - name: Restore quiz third question
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pkg/api/quiz_router_v131.php')
+          s=p.read_text(encoding='utf-8')
+          old='''        db()->prepare('UPDATE quiz_pos_culto SET participou=1,avaliacao=?,etapa=4,respondido=1,updated_at=NOW() WHERE id=?')\n            ->execute([$label, $quiz['id']]);\n        v131_upsert_avaliacao($quiz, $nota, null);\n        v131_quiz_reply($quiz,\n            "🎉 *Quiz concluído!*\\n\\nSua presença e avaliação *{$label}* foram registradas. Obrigado por servir! 🙏❤️",\n            'quiz_completed_rating'\n        );\n        return true;'''
+          new='''        db()->prepare('UPDATE quiz_pos_culto SET participou=1,avaliacao=?,etapa=3,respondido=0,updated_at=NOW() WHERE id=?')\n            ->execute([$label, $quiz['id']]);\n        v131_upsert_avaliacao($quiz, $nota, null);\n        v131_quiz_reply($quiz,\n            "💬 *Última pergunta*\\n\\nTem alguma sugestão, comentário ou algo que podemos melhorar para servir melhor?\\n\\n✍️ Escreva sua resposta.\\nSe não quiser comentar, responda *PULAR*.",\n            'quiz_step3'\n        );\n        return true;'''
+          c=s.count(old)
+          assert c==1, f'expected one premature quiz completion block, found {c}'
+          s=s.replace(old,new,1)
+          s=s.replace('// Compatibilidade com quizzes antigos que ficaram esperando uma sugestão (etapa 3).','// Terceira pergunta: sugestão/comentário antes de concluir o quiz.',1)
+          s=s.replace('"🎉 *Quiz concluído!* Obrigado pelo retorno. 🙏", \'quiz_completed_legacy_step3\'','"🎉 *Quiz concluído!*\\n\\nObrigado pelas respostas e pelo seu retorno. 🙏❤️", \'quiz_completed_step3\'',1)
+          p.write_text(s,encoding='utf-8')
+          PY
+          printf '1.3.22\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.22.md <<'EOF'
+          # Escala de Propósito v1.3.22
+
+          Correção do quiz pós-culto no WhatsApp.
+
+          - O quiz não encerra mais depois da segunda pergunta.
+          - Após a avaliação de 1 a 5, avança para a terceira pergunta de sugestão/comentário.
+          - O usuário pode escrever o comentário ou responder `PULAR`.
+          - O quiz só é marcado como concluído depois da terceira resposta.
+          - Mantém presença, avaliação e comentário registrados corretamente.
+          - Não altera GPS, CRON, webhook da Evolution, confirmações de escala ou pagamentos.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.22.md
+
+      - name: Validate quiz flow
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.22"
+          php -l pkg/api/quiz_router_v131.php
+          grep -Fq "avaliacao=?,etapa=3,respondido=0" pkg/api/quiz_router_v131.php
+          grep -Fq "quiz_step3" pkg/api/quiz_router_v131.php
+          grep -Fq "responda *PULAR*" pkg/api/quiz_router_v131.php
+          grep -Fq "if ($etapa === 3)" pkg/api/quiz_router_v131.php
+          ! grep -Fq "quiz_completed_rating" pkg/api/quiz_router_v131.php
+          php -l pkg/api/webhook-entry-v1311.php >/dev/null
+          php -l pkg/api/pending_router_v1311.php >/dev/null
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.3.22.txt
+
+      - name: Publish v1.3.22
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.3.22 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.22 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.3.22.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.22' \
+            --notes-file pkg/ATUALIZACAO-v1.3.22.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.22
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.3.22.txt
+          retention-days: 14
