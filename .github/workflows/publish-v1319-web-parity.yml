@@ -1,0 +1,86 @@
+name: Publish Escala de Proposito v1.3.19 Web Parity
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1319-web-parity.yml'
+      - '.pkg_v1319_src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.18 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.18 -p escala-de-proposito-cpanel.zip --clobber
+          echo '9c36387e27f211e2818233d3d9657f2cfaabff3bff058584a8ba9f398c3b4f70  escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.18"
+
+      - name: Remove Android-specific visual overrides
+        run: |
+          set -euo pipefail
+          cp .pkg_v1319_src/native-app-enhance.js pkg/native-app-enhance.js
+          printf '1.3.19\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.19.md <<'EOF'
+          # Escala de Propósito v1.3.19
+
+          Correção de paridade visual entre navegador e aplicativo Android.
+
+          - O APK passa a usar exatamente o mesmo template HTML/CSS do navegador.
+          - Remove qualquer CSS extra específico do aplicativo Android.
+          - Remove classes e estilos residuais das versões 1.3.17/1.3.18/Android 1.0.6.
+          - Mantém apenas a ocultação do botão “Instalar Aplicativo” dentro do APK.
+          - Mantém a padronização da marca “Escala de Propósito”.
+          - Não altera WhatsApp, CRON, webhook, banco de dados, pagamentos, check-in ou regras de negócio.
+          EOF
+
+      - name: Validate exact-web mode
+        run: |
+          set -euo pipefail
+          node --check pkg/native-app-enhance.js
+          grep -Fq "cleanupNativeStyles" pkg/native-app-enhance.js
+          grep -Fq "native-app-style-v1317" pkg/native-app-enhance.js
+          grep -Fq "native-app-recovery-v106" pkg/native-app-enhance.js
+          grep -Fq "instalar aplicativo" pkg/native-app-enhance.js
+          ! grep -Fq "addSafeStyle" pkg/native-app-enhance.js
+          ! grep -Fq "grid-template-columns" pkg/native-app-enhance.js
+          ! grep -Fq "border-radius:18px" pkg/native-app-enhance.js
+          test "$(cat pkg/VERSION)" = "1.3.19"
+
+      - name: Build and publish v1.3.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.3.19.txt
+          gh release delete v1.3.19 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.19 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.3.19.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.19' \
+            --notes-file pkg/ATUALIZACAO-v1.3.19.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.19
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.3.19.txt
+          retention-days: 14
