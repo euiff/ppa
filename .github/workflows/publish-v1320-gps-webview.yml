@@ -40,14 +40,8 @@ jobs:
           c=s.count(old)
           assert c==1, f'expected 1 GPS permission gate, found {c}'
           s=s.replace(old,new,1)
-          # Make browser/WebView GPS errors visible in the console instead of silently discarding them.
-          old2='async(D,F)=>{if(F||!D)return;const Z=new Date()'
-          new2='async(D,F)=>{if(F){console.error("[LocationTracker] GPS watch error:",F);return}if(!D)return;const Z=new Date()'
-          c2=s.count(old2)
-          assert c2==1, f'expected 1 tracker callback, found {c2}'
-          s=s.replace(old2,new2,1)
           p.write_text(s,encoding='utf-8')
-          print('patched',p)
+          print('GPS permission gate patched in',p)
           PY
           printf '1.3.20\n' > pkg/VERSION
           cat > pkg/ATUALIZACAO-v1.3.20.md <<'EOF'
@@ -58,7 +52,6 @@ jobs:
           - O rastreador não chama mais `requestPermissions()` do Capacitor quando está rodando como WebView.
           - No APK, a geolocalização passa diretamente para `navigator.geolocation.watchPosition`, que conversa com a permissão nativa do Android.
           - Mantém o fluxo Capacitor original quando o sistema estiver em um app Capacitor verdadeiro.
-          - Adiciona log explícito para erro de GPS no rastreador em vez de falhar silenciosamente.
           - Não altera CRON, webhook do WhatsApp, confirmação de escalas ou pagamentos.
           EOF
           sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.20.md
@@ -74,8 +67,8 @@ jobs:
           assert len(files)==1
           s=files[0].read_text(encoding='utf-8')
           assert 'location!=="granted"&&hc.isNativePlatform()&&(await Ji.requestPermissions())' in s
-          assert '[LocationTracker] GPS watch error:' in s
           assert 'from("volunteer_locations").upsert' in s
+          assert 'Ji.watchPosition' in s
           print('GPS WebView patch validated')
           PY
           php -l pkg/api/cron.php >/dev/null
