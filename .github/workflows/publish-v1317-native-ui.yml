@@ -63,7 +63,7 @@ jobs:
           test "$(cat pkg/VERSION)" = "1.3.17"
           test -s pkg/native-app-enhance.js
           grep -Fq 'native-app-mode' pkg/native-app-enhance.js
-          grep -Fq 'Instalar Aplicativo' pkg/native-app-enhance.js
+          grep -Fq 'instalar aplicativo' pkg/native-app-enhance.js
           grep -Fq 'Escala de Propósito' pkg/native-app-enhance.js
           grep -Fq '/native-app-enhance.js?v=1317' pkg/sistema.html
           node --check pkg/native-app-enhance.js
