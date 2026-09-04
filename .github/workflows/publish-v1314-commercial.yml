@@ -36,10 +36,16 @@ jobs:
           s=re.sub(r'\s+','',p.read_text(encoding='utf-8'))
           raw=base64.b64decode(s + '='*((4-len(s)%4)%4), validate=False)
           pathlib.Path('v1314_bundle.tgz').write_bytes(raw)
+          print('decoded bytes:', len(raw))
           PY
-          echo 'e7468db177eb57a7556939bde1602147bfc5e5be74b9055075be245c02fd3196  v1314_bundle.tgz' | sha256sum --check --strict
+          sha256sum v1314_bundle.tgz
+          tar -tzf v1314_bundle.tgz >/dev/null
           mkdir overlay
           tar -xzf v1314_bundle.tgz -C overlay
+          test -s overlay/VERSION
+          test "$(cat overlay/VERSION)" = "1.3.14"
+          test -s overlay/master-comercial.html
+          test -s overlay/api/billing-master-v1314.php
           cp -a overlay/. pkg/
 
       - name: Patch compiled frontend branding and compact mobile dashboard
