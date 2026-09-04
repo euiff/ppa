@@ -64,7 +64,7 @@ jobs:
           grep -Fq "avaliacao=?,etapa=3,respondido=0" pkg/api/quiz_router_v131.php
           grep -Fq "quiz_step3" pkg/api/quiz_router_v131.php
           grep -Fq "responda *PULAR*" pkg/api/quiz_router_v131.php
-          grep -Fq "if ($etapa === 3)" pkg/api/quiz_router_v131.php
+          grep -Fq 'if ($etapa === 3)' pkg/api/quiz_router_v131.php
           ! grep -Fq "quiz_completed_rating" pkg/api/quiz_router_v131.php
           php -l pkg/api/webhook-entry-v1311.php >/dev/null
           php -l pkg/api/pending_router_v1311.php >/dev/null
