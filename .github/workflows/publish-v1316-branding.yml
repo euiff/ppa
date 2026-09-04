@@ -1,0 +1,99 @@
+name: Publish Escala de Proposito v1.3.16 Branding Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1316-branding.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.15 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.15 -p escalastop-cpanel.zip --clobber
+          echo '243a6bec80784725bb1bde7ed658ec38137250b2929520fef4aadd90b0c487e4  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.15"
+
+      - name: Standardize official product name
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          exts={'.html','.js','.css','.json','.webmanifest','.md','.php','.txt','.xml'}
+          changed=[]
+          for p in Path('pkg').rglob('*'):
+              if not p.is_file() or p.suffix.lower() not in exts:
+                  continue
+              try:
+                  s=p.read_text(encoding='utf-8')
+              except Exception:
+                  continue
+              n=s.replace('Escala com Propósito','Escala de Propósito').replace('Escala com Proposito','Escala de Propósito')
+              if n!=s:
+                  p.write_text(n,encoding='utf-8')
+                  changed.append(str(p))
+          print('arquivos alterados:', len(changed))
+          for x in changed[:100]: print(x)
+          PY
+          printf '1.3.16\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.16.md <<'EOF'
+          # Escala de Propósito v1.3.16
+
+          Correção de identidade visual e nomenclatura oficial.
+
+          - Padroniza o nome oficial para **Escala de Propósito** em todo o frontend, página de vendas, login, planos, Gestão Comercial, documentos e PWA.
+          - Não altera o fluxo de WhatsApp, confirmação de escalas, CRON ou webhook da Evolution.
+          - Mantém integralmente a Gestão Comercial, Mercado Pago e correções da v1.3.15.
+          - Mantém o pacote `escalastop-cpanel.zip` para compatibilidade com o atualizador instalado.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.16.md
+
+      - name: Validate branding-only update
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.16"
+          grep -RIl --include='*.html' --include='*.js' --include='*.css' --include='*.json' --include='*.webmanifest' --include='*.md' --include='*.php' 'Escala com Propósito' pkg && exit 1 || true
+          grep -RIl --include='*.html' --include='*.js' --include='*.css' --include='*.json' --include='*.webmanifest' --include='*.md' --include='*.php' 'Escala com Proposito' pkg && exit 1 || true
+          grep -Fq 'Escala de Propósito' pkg/index.html
+          grep -Fq 'Escala de Propósito' pkg/sistema.html
+          grep -Fq 'Escala de Propósito' pkg/master-comercial.html
+          php -l pkg/api/automation_v130.php
+          php -l pkg/api/mercadopago-webhook.php
+          grep -Fq 'webhook_sync_v1311.php' pkg/api/automation_v130.php
+          grep -Fq 'cron-runner.php' pkg/api/update.php
+
+      - name: Build and publish v1.3.16
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.16.txt
+          gh release delete v1.3.16 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.16 escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.3.16.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.16' \
+            --notes-file pkg/ATUALIZACAO-v1.3.16.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.16
+          path: |
+            escalastop-cpanel.zip
+            escala-de-proposito-cpanel.zip
+            SHA256-v1.3.16.txt
+          retention-days: 14
