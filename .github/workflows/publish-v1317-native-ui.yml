@@ -1,0 +1,98 @@
+name: Publish Escala de Proposito v1.3.17 Native UI
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1317-native-ui.yml'
+      - '.pkg_v1317_src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.16 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.16 -p escalastop-cpanel.zip --clobber
+          echo 'cbf6705adce00871579d9c338b9cedc16b03c220b0c623ab439d96d44c5f5128  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.16"
+
+      - name: Add native Android UX layer
+        run: |
+          set -euo pipefail
+          cp .pkg_v1317_src/native-app-enhance.js pkg/native-app-enhance.js
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pkg/sistema.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="/native-app-enhance.js?v=1317"></script>'
+          if tag not in s:
+              if '</body>' in s: s=s.replace('</body>',tag+'</body>')
+              else: s += tag
+          p.write_text(s,encoding='utf-8')
+          PY
+          printf '1.3.17\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.17.md <<'EOF'
+          # Escala de Propósito v1.3.17
+
+          Refinamento da experiência do aplicativo Android sem alterar o funcionamento do site desktop.
+
+          - Esconde “Instalar Aplicativo” quando o sistema está rodando dentro do APK.
+          - Padroniza visualmente qualquer referência residual para **Escala de Propósito** no app.
+          - Deixa cards de indicadores mais compactos e fáceis de ler no celular.
+          - Moderniza a barra de navegação inferior no APK.
+          - Melhora botões, campos, cards de frequência e tela de login no Android.
+          - As melhorias são ativadas apenas pelo identificador do aplicativo Android; o navegador/desktop mantém seu layout normal.
+          - Não altera CRON, webhook da Evolution, confirmação WhatsApp, fila de pendências, quiz ou Mercado Pago.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.17.md
+
+      - name: Validate native UI update
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.17"
+          test -s pkg/native-app-enhance.js
+          grep -Fq 'native-app-mode' pkg/native-app-enhance.js
+          grep -Fq 'Instalar Aplicativo' pkg/native-app-enhance.js
+          grep -Fq 'Escala de Propósito' pkg/native-app-enhance.js
+          grep -Fq '/native-app-enhance.js?v=1317' pkg/sistema.html
+          node --check pkg/native-app-enhance.js
+          php -l pkg/api/cron.php
+          php -l pkg/api/webhook-entry-v1311.php
+
+      - name: Build and publish v1.3.17
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.17.txt
+          gh release delete v1.3.17 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.17 \
+            escalastop-cpanel.zip \
+            escala-de-proposito-cpanel.zip \
+            SHA256-v1.3.17.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.17' \
+            --notes-file pkg/ATUALIZACAO-v1.3.17.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.17
+          path: |
+            escalastop-cpanel.zip
+            escala-de-proposito-cpanel.zip
+            SHA256-v1.3.17.txt
+          retention-days: 14
