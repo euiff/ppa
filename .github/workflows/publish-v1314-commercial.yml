@@ -1,0 +1,124 @@
+name: Publish Escala com Proposito v1.3.14 Commercial
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1314-commercial.yml'
+      - '.pkg_v1314_src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.13 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.13 -p escalastop-cpanel.zip --clobber
+          echo '09e1d74399079a192ecd3e973eb4ff057b3412e2b9f7d728435d5dcc5f80bbb9  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.13"
+
+      - name: Restore v1.3.14 commercial overlay
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, pathlib, re
+          p=pathlib.Path('.pkg_v1314_src/bundle.tgz.b64')
+          s=re.sub(r'\s+','',p.read_text(encoding='utf-8'))
+          raw=base64.b64decode(s + '='*((4-len(s)%4)%4), validate=False)
+          pathlib.Path('v1314_bundle.tgz').write_bytes(raw)
+          PY
+          echo '717052733d3bcfb492298990332e46526d7dfe3ec730f810c8d5d05c6020ec3f  v1314_bundle.tgz' | sha256sum --check --strict
+          mkdir overlay
+          tar -xzf v1314_bundle.tgz -C overlay
+          cp -a overlay/. pkg/
+
+      - name: Patch compiled frontend branding and mobile dashboard
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          js=Path('pkg/assets/index-C6Ng0a8i.js')
+          s=js.read_text(encoding='utf-8')
+          for old,new in [
+              ('EscalaFacil','Escala com Propósito'),
+              ('Escala Fácil','Escala com Propósito'),
+              ('Escalas Top','Escala com Propósito'),
+          ]:
+              s=s.replace(old,new)
+          js.write_text(s,encoding='utf-8')
+
+          css=Path('pkg/assets/index-Iz5fvB3Y.css')
+          c=css.read_text(encoding='utf-8')
+          marker='/* Escala com Propósito v1.3.14 — dashboard mobile compacto */'
+          block='''\n/* Escala com Propósito v1.3.14 — dashboard mobile compacto */\n.native-mobile .stat-card>div{display:grid!important;grid-template-columns:72px minmax(0,1fr)!important;grid-template-rows:auto auto!important;column-gap:16px!important;row-gap:2px!important;align-items:center!important;text-align:left!important;padding:16px 18px!important;min-height:108px!important}.native-mobile .stat-card>div>div:first-child{grid-column:1!important;grid-row:1/3!important;margin:0!important;padding:12px!important;border-radius:16px!important;justify-self:center!important}.native-mobile .stat-card>div>div:first-child svg{width:26px!important;height:26px!important}.native-mobile .stat-card>div>p:nth-child(2){grid-column:2!important;grid-row:1!important;font-size:30px!important;line-height:1!important;align-self:end!important}.native-mobile .stat-card>div>p:nth-child(3){grid-column:2!important;grid-row:2!important;margin-top:4px!important;font-size:11px!important;line-height:1.25!important;align-self:start!important}.native-mobile .adaptive-grid{gap:12px!important}.native-mobile .stat-card{min-height:0!important}.native-mobile .dashboard-hero+ .adaptive-grid{grid-template-columns:minmax(0,1fr)!important}\n'''
+          if marker not in c:
+              c += block
+          css.write_text(c,encoding='utf-8')
+          PY
+
+      - name: Validate complete commercial package
+        run: |
+          set -euo pipefail
+          for f in \
+            pkg/api/billing_lib_v1314.php \
+            pkg/api/billing-master-v1314.php \
+            pkg/api/billing-public.php \
+            pkg/api/billing-checkout.php \
+            pkg/api/mercadopago-webhook.php \
+            pkg/api/subscription-status.php; do php -l "$f"; done
+
+          test "$(cat pkg/VERSION)" = "1.3.14"
+          test -s pkg/index.html
+          test -s pkg/sistema.html
+          test -s pkg/master-comercial.html
+          test -s pkg/master-commerce-entry.js
+          test -s pkg/.htaccess
+          grep -Fq 'Sistema de escalas para igrejas' pkg/index.html
+          grep -Fq '/master-commerce-entry.js' pkg/sistema.html
+          grep -Fq 'Gestão Comercial' pkg/master-comercial.html
+          grep -Fq 'Mercado Pago' pkg/master-comercial.html
+          grep -Fq 'Promoções' pkg/master-comercial.html
+          grep -Fq 'Clientes' pkg/master-comercial.html
+          grep -Fq 'Usuários' pkg/master-comercial.html
+          grep -Fq 'promo_code' pkg/planos.html
+          grep -Fq 'dashboard mobile compacto' pkg/assets/index-Iz5fvB3Y.css
+          grep -Fq 'Escala com Propósito' pkg/assets/index-C6Ng0a8i.js
+          ! grep -Fq 'EscalaFacil' pkg/assets/index-C6Ng0a8i.js
+          ! grep -Fq 'Escala Fácil' pkg/assets/index-C6Ng0a8i.js
+          ! grep -Fq 'Escalas Top' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'start_url":"/sistema.html"' pkg/manifest.webmanifest
+          node --check pkg/master-commerce-entry.js
+
+      - name: Build and publish v1.3.14
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -f escala-com-proposito-cpanel.zip
+          (cd pkg && zip -qr ../escala-com-proposito-cpanel.zip .)
+          unzip -t escala-com-proposito-cpanel.zip >/dev/null
+          sha256sum escala-com-proposito-cpanel.zip | tee SHA256-v1.3.14.txt
+          gh release delete v1.3.14 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.14 escala-com-proposito-cpanel.zip SHA256-v1.3.14.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala com Propósito v1.3.14' \
+            --notes-file pkg/ATUALIZACAO-v1.3.14.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-com-proposito-cpanel-v1.3.14
+          path: |
+            escala-com-proposito-cpanel.zip
+            SHA256-v1.3.14.txt
+          retention-days: 14
