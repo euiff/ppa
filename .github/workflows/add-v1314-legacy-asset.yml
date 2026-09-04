@@ -1,0 +1,42 @@
+name: Add v1.3.14 updater-compatible asset
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-v1314-legacy-asset.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  add-compat-asset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download current v1.3.14 package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.14 -p escala-com-proposito-cpanel.zip --clobber
+          echo '6e9065655c8d871a2810c3d53b6d5b48b2702a775673ea6da66e5c7ce679d0ed  escala-com-proposito-cpanel.zip' | sha256sum --check --strict
+          cp escala-com-proposito-cpanel.zip escalastop-cpanel.zip
+          cmp escala-com-proposito-cpanel.zip escalastop-cpanel.zip
+
+      - name: Upload legacy updater filename
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload v1.3.14 escalastop-cpanel.zip --clobber
+
+      - name: Verify both assets are present
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v1.3.14 --json assets --jq '.assets[].name' | tee assets.txt
+          grep -Fxq 'escala-com-proposito-cpanel.zip' assets.txt
+          grep -Fxq 'escalastop-cpanel.zip' assets.txt
