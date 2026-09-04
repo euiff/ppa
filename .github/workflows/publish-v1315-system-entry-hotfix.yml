@@ -1,0 +1,91 @@
+name: Publish Escala com Proposito v1.3.15 System Entry Hotfix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1315-system-entry-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.14 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.14 -p escalastop-cpanel.zip --clobber
+          echo '6e9065655c8d871a2810c3d53b6d5b48b2702a775673ea6da66e5c7ce679d0ed  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.14"
+
+      - name: Fix /sistema.html SPA entry and refresh routing
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('pkg/sistema.html')
+          s=p.read_text(encoding='utf-8')
+          marker='EscalaComPropositoAppEntry-v1315'
+          script='''<script id="EscalaComPropositoAppEntry-v1315">\n(function(){\n  const PARAM='__app';\n  const push=history.pushState.bind(history);\n  const replace=history.replaceState.bind(history);\n  function mark(url){\n    if(url==null) return url;\n    try{\n      const u=new URL(String(url), location.href);\n      if(u.origin!==location.origin) return url;\n      u.searchParams.set(PARAM,'1');\n      return u.pathname+u.search+u.hash;\n    }catch(e){ return url; }\n  }\n  history.pushState=function(state,title,url){ return push(state,title,mark(url)); };\n  history.replaceState=function(state,title,url){ return replace(state,title,mark(url)); };\n  if(location.pathname.endsWith('/sistema.html')){\n    const u=new URL(location.href);\n    u.pathname='/';\n    u.searchParams.set(PARAM,'1');\n    replace(history.state,'',u.pathname+u.search+u.hash);\n  }else if(!new URL(location.href).searchParams.has(PARAM)){\n    replace(history.state,'',mark(location.pathname+location.search+location.hash));\n  }\n})();\n</script>'''
+          if marker not in s:
+              needle='<script type="module" crossorigin src="/assets/index-C6Ng0a8i.js"></script>'
+              if needle not in s:
+                  raise SystemExit('main module script not found')
+              s=s.replace(needle,script+'\n    '+needle,1)
+          p.write_text(s,encoding='utf-8')
+
+          ht=Path('pkg/.htaccess')
+          h='''DirectoryIndex index.html\nRewriteEngine On\n\n# Quando o sistema autenticado estiver na rota raiz, o marcador __app=1 garante que\n# o refresh continue carregando a SPA em vez da página pública de vendas.\nRewriteCond %{QUERY_STRING} (^|&)__app=1(&|$)\nRewriteRule ^$ sistema.html [L]\n\n# Arquivos, pastas e endpoints existentes continuam normais.\nRewriteCond %{REQUEST_FILENAME} -f [OR]\nRewriteCond %{REQUEST_FILENAME} -d\nRewriteRule ^ - [L]\n\n# Todas as demais rotas internas da SPA carregam o sistema.\nRewriteRule ^ sistema.html [L]\n'''
+          ht.write_text(h,encoding='utf-8')
+
+          Path('pkg/VERSION').write_text('1.3.15\n',encoding='utf-8')
+          Path('pkg/ATUALIZACAO-v1.3.15.md').write_text('''# Escala com Propósito v1.3.15\n\nHotfix da entrada do sistema após a implantação da página pública de vendas.\n\n- Corrige o 404 ao abrir `/sistema.html`.\n- O React Router passa a receber uma rota válida ao iniciar o sistema.\n- Adiciona marcador interno `__app=1` para que atualizar a página no dashboard não volte para a página pública de vendas.\n- Mantém as rotas internas da SPA funcionando em refresh direto.\n- Mantém integralmente a Gestão Comercial, Mercado Pago, planos, promoções e demais recursos da v1.3.14.\n- Publica novamente com `escalastop-cpanel.zip` para compatibilidade com o atualizador já instalado.\n''',encoding='utf-8')
+          PY
+
+      - name: Validate hotfix package
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.15"
+          grep -Fq 'EscalaComPropositoAppEntry-v1315' pkg/sistema.html
+          grep -Fq "location.pathname.endsWith('/sistema.html')" pkg/sistema.html
+          grep -Fq "u.searchParams.set(PARAM,'1')" pkg/sistema.html
+          grep -Fq '__app=1' pkg/.htaccess
+          grep -Fq 'RewriteRule ^$ sistema.html [L]' pkg/.htaccess
+          grep -Fq 'RewriteRule ^ sistema.html [L]' pkg/.htaccess
+          grep -Fq 'Gestão Comercial' pkg/master-comercial.html
+          grep -Fq 'Escala com Propósito' pkg/assets/index-C6Ng0a8i.js
+          ! grep -Fq 'EscalaFacil' pkg/assets/index-C6Ng0a8i.js
+          node --check pkg/master-commerce-entry.js
+
+      - name: Build and publish v1.3.15
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escalastop-cpanel.zip .)
+          cp escalastop-cpanel.zip escala-com-proposito-cpanel.zip
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.15.txt
+          gh release delete v1.3.15 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.15 escalastop-cpanel.zip escala-com-proposito-cpanel.zip SHA256-v1.3.15.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala com Propósito v1.3.15' \
+            --notes-file pkg/ATUALIZACAO-v1.3.15.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-com-proposito-cpanel-v1.3.15
+          path: |
+            escalastop-cpanel.zip
+            escala-com-proposito-cpanel.zip
+            SHA256-v1.3.15.txt
+          retention-days: 14
