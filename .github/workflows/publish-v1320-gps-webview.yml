@@ -1,0 +1,113 @@
+name: Publish Escala de Proposito v1.3.20 GPS WebView
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1320-gps-webview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.19 -p escala-de-proposito-cpanel.zip --clobber
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.19"
+
+      - name: Fix GPS tracking in Android WebView
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import glob
+          files=[Path(p) for p in glob.glob('pkg/assets/index-*.js')]
+          assert len(files)==1, files
+          p=files[0]
+          s=p.read_text(encoding='utf-8')
+          old='if((await Ji.checkPermissions()).location!=="granted"&&(await Ji.requestPermissions()).location!=="granted")return;'
+          new='if((await Ji.checkPermissions()).location!=="granted"&&hc.isNativePlatform()&&(await Ji.requestPermissions()).location!=="granted")return;'
+          c=s.count(old)
+          assert c==1, f'expected 1 GPS permission gate, found {c}'
+          s=s.replace(old,new,1)
+          # Make browser/WebView GPS errors visible in the console instead of silently discarding them.
+          old2='async(D,F)=>{if(F||!D)return;const Z=new Date()'
+          new2='async(D,F)=>{if(F){console.error("[LocationTracker] GPS watch error:",F);return}if(!D)return;const Z=new Date()'
+          c2=s.count(old2)
+          assert c2==1, f'expected 1 tracker callback, found {c2}'
+          s=s.replace(old2,new2,1)
+          p.write_text(s,encoding='utf-8')
+          print('patched',p)
+          PY
+          printf '1.3.20\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.20.md <<'EOF'
+          # Escala de Propósito v1.3.20
+
+          Correção do rastreamento por GPS dentro do aplicativo Android/WebView.
+
+          - O rastreador não chama mais `requestPermissions()` do Capacitor quando está rodando como WebView.
+          - No APK, a geolocalização passa diretamente para `navigator.geolocation.watchPosition`, que conversa com a permissão nativa do Android.
+          - Mantém o fluxo Capacitor original quando o sistema estiver em um app Capacitor verdadeiro.
+          - Adiciona log explícito para erro de GPS no rastreador em vez de falhar silenciosamente.
+          - Não altera CRON, webhook do WhatsApp, confirmação de escalas ou pagamentos.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.20.md
+
+      - name: Validate package
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.20"
+          python3 - <<'PY'
+          from pathlib import Path
+          import glob
+          files=[Path(p) for p in glob.glob('pkg/assets/index-*.js')]
+          assert len(files)==1
+          s=files[0].read_text(encoding='utf-8')
+          assert 'location!=="granted"&&hc.isNativePlatform()&&(await Ji.requestPermissions())' in s
+          assert '[LocationTracker] GPS watch error:' in s
+          assert 'from("volunteer_locations").upsert' in s
+          print('GPS WebView patch validated')
+          PY
+          php -l pkg/api/cron.php >/dev/null
+          php -l pkg/api/webhook-entry-v1311.php >/dev/null
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.3.20.txt
+
+      - name: Publish v1.3.20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.3.20 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.20 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.3.20.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.20' \
+            --notes-file pkg/ATUALIZACAO-v1.3.20.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.20
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.3.20.txt
+          retention-days: 14
