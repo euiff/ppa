@@ -1,0 +1,89 @@
+name: Publish Escala de Proposito v1.3.18 Safe Mobile
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1318-safe-mobile.yml'
+      - '.pkg_v1318_src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.17 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.17 -p escalastop-cpanel.zip --clobber
+          echo '5e370c260014b754f9ddac6eb88136fd070e5dd4b4a876972e875e95057b4036  escalastop-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q escalastop-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.17"
+
+      - name: Replace risky native layout layer
+        run: |
+          set -euo pipefail
+          cp .pkg_v1318_src/native-app-enhance.js pkg/native-app-enhance.js
+          printf '1.3.18\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.18.md <<'EOF'
+          # Escala de Propósito v1.3.18
+
+          Correção imediata da interface Android da v1.3.17.
+
+          - Remove a lógica que tentava identificar cabeçalho, navegação e cards por aproximação e podia reduzir o contêiner errado.
+          - Corrige a tela em branco/conteúdo desaparecido no aplicativo Android.
+          - Mantém o layout estrutural original do sistema e aplica somente ajustes visuais seguros no APK.
+          - Mantém o botão “Instalar Aplicativo” oculto dentro do APK.
+          - Mantém a marca Escala de Propósito no aplicativo.
+          - Preserva todas as rotinas de WhatsApp, CRON, quiz, pagamentos, escalas, check-in e banco de dados da base v1.3.17.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.18.md
+
+      - name: Validate safe mobile patch
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.18"
+          test -s pkg/native-app-enhance.js
+          grep -Fq 'native-app-style-v1318' pkg/native-app-enhance.js
+          grep -Fq 'instalar aplicativo' pkg/native-app-enhance.js
+          ! grep -Fq 'commonAncestor' pkg/native-app-enhance.js
+          ! grep -Fq 'native-bottom-nav' pkg/native-app-enhance.js
+          ! grep -Fq 'native-top-header' pkg/native-app-enhance.js
+          ! grep -Fq 'max-height:82px' pkg/native-app-enhance.js
+          node --check pkg/native-app-enhance.js
+          php -l pkg/api/cron.php
+          php -l pkg/api/webhook-entry-v1311.php
+
+      - name: Build and publish v1.3.18
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escalastop-cpanel.zip >/dev/null
+          sha256sum escalastop-cpanel.zip | tee SHA256-v1.3.18.txt
+          gh release delete v1.3.18 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.18 \
+            escalastop-cpanel.zip \
+            escala-de-proposito-cpanel.zip \
+            SHA256-v1.3.18.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.18' \
+            --notes-file pkg/ATUALIZACAO-v1.3.18.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.18
+          path: |
+            escalastop-cpanel.zip
+            escala-de-proposito-cpanel.zip
+            SHA256-v1.3.18.txt
+          retention-days: 14
