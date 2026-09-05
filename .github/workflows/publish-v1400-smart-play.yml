@@ -1,0 +1,99 @@
+name: Publish Escala de Proposito v1.4.0 Smart Play
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1400-smart-play.yml'
+      - '.pkg_v1400_bin/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.23 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.23 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.23"
+
+      - name: Apply v1.4.0 feature delta
+        run: |
+          set -euo pipefail
+          cat .pkg_v1400_bin/delta-*.b64 | tr -d '\r\n\t ' | base64 -d > delta.tar.gz
+          gzip -t delta.tar.gz
+          tar -xzf delta.tar.gz -C pkg
+          test "$(cat pkg/VERSION)" = "1.4.0"
+
+      - name: Validate smart features and Play safeguards
+        run: |
+          set -euo pipefail
+          php -l pkg/api/sos_lib_v140.php
+          php -l pkg/api/sos.php
+          php -l pkg/api/sos-router-v140.php
+          php -l pkg/api/scale-health.php
+          php -l pkg/api/app_notifications_v140.php
+          php -l pkg/api/app-notifications.php
+          php -l pkg/api/church-admin.php
+          php -l pkg/api/account-delete.php
+          php -l pkg/api/billing-checkout.php
+          php -l pkg/api/confirmation_router_v1311.php
+          php -l pkg/api/pending_router_v1311.php
+          php -l pkg/api/webhook-entry-v1311.php
+          node --check pkg/smart-features.js
+          node --check pkg/app-native-sync.js
+          node --check pkg/subscription-guard.js
+          grep -Fq 'Saúde da Escala' pkg/smart-features.js
+          grep -Fq 'SOS Escala' pkg/smart-features.js
+          grep -Fq 'Somente o administrador principal' pkg/api/church-admin.php
+          grep -Fq 'play_consumption_only' pkg/api/billing-checkout.php
+          grep -Fq 'EscalaPlay/1' pkg/planos.html
+          grep -Fq '/api/app-notifications.php?action=pull' pkg/app-native-sync.js
+          grep -Fq 'etapa=3,respondido=0' pkg/api/quiz_router_v131.php
+          grep -Fq '/api/location-heartbeat.php' pkg/app-native-sync.js pkg/sistema.html pkg/native-app-enhance.js || true
+          test -f pkg/administracao-igreja.html
+          test -f pkg/notificacoes.html
+          test -f pkg/sos.html
+          test -f pkg/sobre-app.html
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.0.txt
+
+      - name: Publish v1.4.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.0 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.0 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.0.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.0' \
+            --notes-file pkg/ATUALIZACAO-v1.4.0.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.0
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.0.txt
+          retention-days: 30
