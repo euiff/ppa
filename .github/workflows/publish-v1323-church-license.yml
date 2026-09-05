@@ -1,0 +1,122 @@
+name: Publish Escala de Proposito v1.3.23 Church License
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1323-church-license.yml'
+      - '.pkg_v1323_src/package.tar.gz.b64'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.3.22
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.3.22 -p escala-de-proposito-cpanel.zip --clobber
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.3.22"
+
+      - name: Add church-based licensing and smart signup
+        run: |
+          set -euo pipefail
+          mkdir src1323
+          base64 -d .pkg_v1323_src/package.tar.gz.b64 > src1323/package.tar.gz
+          tar -xzf src1323/package.tar.gz -C src1323
+          cp src1323/tenant_access_v1323.php pkg/api/tenant_access_v1323.php
+          # Uma igreja tem um admin principal, mas o mesmo usuário pode administrar mais de uma igreja.
+          sed -i 's/UNIQUE KEY uq_saas_church_admin_user(admin_user_id)/KEY idx_saas_church_admin_user(admin_user_id)/' pkg/api/tenant_access_v1323.php
+          cp src1323/church-code.php pkg/api/church-code.php
+          cp src1323/church-join.php pkg/api/church-join.php
+          cp src1323/trial-register.php pkg/api/trial-register.php
+          cp src1323/subscription-status.php pkg/api/subscription-status.php
+          cp src1323/billing-checkout.php pkg/api/billing-checkout.php
+          cp src1323/cadastro.html pkg/cadastro.html
+          cp src1323/codigo-igreja.html pkg/codigo-igreja.html
+          cp src1323/licenca-igreja.html pkg/licenca-igreja.html
+          cp src1323/church-access.js pkg/church-access.js
+          cp src1323/subscription-guard.js pkg/subscription-guard.js
+          cp src1323/sistema.html pkg/sistema.html
+          cp src1323/comece.html pkg/comece.html
+          cp src1323/sw.js pkg/sw.js
+          printf '1.3.23\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.3.23.md <<'EOF'
+          # Escala de Propósito v1.3.23
+
+          Cadastro e licenciamento por igreja.
+
+          - Cada igreja recebe um código exclusivo de 5 dígitos.
+          - Cadastro direto no app/site permite entrar com código da igreja ou criar uma nova igreja.
+          - Link de convite existente continua vinculando automaticamente à igreja.
+          - Quem entra por código começa como Voluntário; o administrador pode promover para Líder.
+          - A assinatura/licença é da igreja (`igreja_id`), não de cada voluntário.
+          - Apenas o administrador principal pode contratar ou renovar o plano.
+          - Líderes e voluntários usam a mesma licença da igreja e não recebem cobrança individual.
+          - Quando a licença vence, somente o administrador é levado ao pagamento; membros veem aviso para procurar o administrador.
+          - Nova página do administrador mostra código da igreja, link de convite, cópia, compartilhamento e regeneração do código.
+          - Novas igrejas continuam recebendo o teste grátis configurado pelo Master.
+          - Não altera GPS nativo, CRON, webhook da Evolution, quiz ou confirmação de escalas.
+          EOF
+          sed -i 's/^          //' pkg/ATUALIZACAO-v1.3.23.md
+
+      - name: Validate tenant and billing flow
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.3.23"
+          for f in tenant_access_v1323.php church-code.php church-join.php trial-register.php subscription-status.php billing-checkout.php; do php -l "pkg/api/$f"; done
+          grep -Fq 'saas_church_access' pkg/api/tenant_access_v1323.php
+          grep -Fq 'join_code CHAR(5)' pkg/api/tenant_access_v1323.php
+          grep -Fq 'KEY idx_saas_church_admin_user(admin_user_id)' pkg/api/tenant_access_v1323.php
+          ! grep -Fq 'UNIQUE KEY uq_saas_church_admin_user' pkg/api/tenant_access_v1323.php
+          grep -Fq "role'=>'voluntario'" pkg/api/church-join.php
+          grep -Fq 'billing_owner' pkg/api/subscription-status.php
+          grep -Fq 'Somente o administrador principal' pkg/api/billing-checkout.php
+          grep -Fq "s.billing_owner?'/planos.html?blocked=1':'/licenca-igreja.html'" pkg/subscription-guard.js
+          grep -Fq '/cadastro.html' pkg/church-access.js
+          grep -Fq '/church-access.js?v=1323' pkg/sistema.html
+          grep -Fq 'v1323-tenant-access' pkg/sw.js
+          grep -Fq 'Código da igreja' pkg/codigo-igreja.html
+          grep -Fq 'Tenho código da igreja' pkg/cadastro.html
+          php -l pkg/api/quiz_router_v131.php >/dev/null
+          php -l pkg/api/location-heartbeat.php >/dev/null
+          php -l pkg/api/webhook-entry-v1311.php >/dev/null
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.3.23.txt
+
+      - name: Publish v1.3.23
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.3.23 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.23 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.3.23.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.3.23' \
+            --notes-file pkg/ATUALIZACAO-v1.3.23.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.3.23
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.3.23.txt
+          retention-days: 14
