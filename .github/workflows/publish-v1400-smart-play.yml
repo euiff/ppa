@@ -84,7 +84,7 @@ jobs:
           grep -Fq 'SOS Escala' pkg/smart-features.js
           grep -Fq 'Somente o administrador principal' pkg/api/church-admin.php
           grep -Fq 'play_consumption_only' pkg/api/billing-checkout.php
-          grep -Fq 'EscalaPlay/1' pkg/planos.html
+          grep -Fq 'EscalaPlay\/1' pkg/planos.html
           grep -Fq '/api/app-notifications.php?action=pull' pkg/app-native-sync.js
           grep -Fq 'etapa=3,respondido=0' pkg/api/quiz_router_v131.php
           test -f pkg/administracao-igreja.html
