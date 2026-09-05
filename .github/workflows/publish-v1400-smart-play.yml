@@ -32,47 +32,23 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib, base64, string
-          p0=''.join(Path('.pkg_v1400_bin/delta-00.b64').read_text().split())
-          tail=''.join(Path('.pkg_v1400_bin/delta-01.b64').read_text().split())
-          def h(s): return hashlib.sha256(s.encode()).hexdigest()
-          if len(p0)!=16000:
-              raise SystemExit(f'delta-00 length mismatch {len(p0)}')
-          marker2='ml3lU3ZEyonu4EHToRjcMreqvfDlkwcLMATdkWtcyBPibLRt'
-          marker3='FsEpSKG5v3CemDn2eNkPWqe5c+026XBq3KNWLaoUm6mUc9L4'
-          i2=tail.find(marker2)
-          i3=tail.find(marker3)
-          if i2<0 or i3<0 or i3<=i2:
-              raise SystemExit(f'segment markers not found i2={i2} i3={i3}')
-          segs=[tail[:i2],tail[i2:i3],tail[i3:]]
+          import hashlib, base64
+          names=['delta-00.b64','delta-01a.b64','delta-01b.b64','delta-01c.b64']
           expected=[
-              (16000,'e59c0fa69f4f3dcd0f7a98d233a00b32c3d3090d55c0576d2245a66095930f6b'),
-              (16000,'c2527cd1d7041020f5bdae02a04979250c057de649ca296ec870e9fbca645eb3'),
-              (14796,'2a8a1ba7f4bb43a4c8d2a9d3a676012e07a1c76f2d78cafc8862df3e5d565472')]
-          alphabet=string.ascii_letters+string.digits+'+/'
-          def repair(seg,want_len,want_hash,n):
-              got=h(seg)
-              print(f'segment {n}: len={len(seg)} sha={got}')
-              if len(seg)==want_len and got==want_hash:
-                  return seg
-              delta=len(seg)-want_len
-              if delta>0 and delta<=64:
-                  for pos in range(len(seg)-delta+1):
-                      c=seg[:pos]+seg[pos+delta:]
-                      if h(c)==want_hash:
-                          print(f'segment {n}: removed {delta} transport chars at offset {pos}')
-                          return c
-              if delta==-1:
-                  for pos in range(len(seg)+1):
-                      for ch in alphabet:
-                          c=seg[:pos]+ch+seg[pos:]
-                          if h(c)==want_hash:
-                              print(f'segment {n}: restored missing base64 char {ch!r} at offset {pos}')
-                              return c
-              raise SystemExit(f'segment {n}: deterministic repair failed delta={delta}')
-          fixed=[repair(s,*e,n+1) for n,(s,e) in enumerate(zip(segs,expected))]
-          full=p0+''.join(fixed)
-          full_hash=h(full)
+            (16000,'49bc0c216696d668755505a84269c4ebb7092d5973d5aa8afdcafda259b999a0'),
+            (16000,'e59c0fa69f4f3dcd0f7a98d233a00b32c3d3090d55c0576d2245a66095930f6b'),
+            (16000,'c2527cd1d7041020f5bdae02a04979250c057de649ca296ec870e9fbca645eb3'),
+            (14796,'2a8a1ba7f4bb43a4c8d2a9d3a676012e07a1c76f2d78cafc8862df3e5d565472')]
+          pieces=[]
+          for name,(want_len,want_hash) in zip(names,expected):
+              s=''.join(Path('.pkg_v1400_bin',name).read_text().split())
+              got=hashlib.sha256(s.encode()).hexdigest()
+              print(name,'len=',len(s),'sha=',got)
+              if len(s)!=want_len or got!=want_hash:
+                  raise SystemExit(f'{name} failed transport verification')
+              pieces.append(s)
+          full=''.join(pieces)
+          full_hash=hashlib.sha256(full.encode()).hexdigest()
           if len(full)!=62796 or full_hash!='b1e37752a4a7c5af57076169618890dabe10c26942d9db7ce1d23e18c3a13ff8':
               raise SystemExit(f'full delta mismatch len={len(full)} sha={full_hash}')
           raw=base64.b64decode(full,validate=True)
