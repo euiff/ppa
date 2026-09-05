@@ -27,10 +27,43 @@ jobs:
           unzip -q escala-de-proposito-cpanel.zip -d pkg
           test "$(cat pkg/VERSION)" = "1.3.23"
 
-      - name: Apply v1.4.0 feature delta
+      - name: Reconstruct and verify v1.4.0 feature delta
         run: |
           set -euo pipefail
-          cat .pkg_v1400_bin/delta-*.b64 | tr -d '\r\n\t ' | base64 -d > delta.tar.gz
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, base64
+          p0=''.join(Path('.pkg_v1400_bin/delta-00.b64').read_text().split())
+          p1=''.join(Path('.pkg_v1400_bin/delta-01.b64').read_text().split())
+          expected0_len=16000
+          expected_tail_len=46796
+          expected_tail_hash='0617699fc6309630234c20024b40dcc42e6fe4dd42e12e21a9efcae0a716eb8c'
+          expected_full_hash='b1e37752a4a7c5af57076169618890dabe10c26942d9db7ce1d23e18c3a13ff8'
+          if len(p0) != expected0_len:
+              raise SystemExit(f'delta-00 length mismatch: {len(p0)}')
+          def h(s): return hashlib.sha256(s.encode()).hexdigest()
+          if len(p1) != expected_tail_len or h(p1) != expected_tail_hash:
+              extra=len(p1)-expected_tail_len
+              fixed=None
+              if extra > 0 and extra <= 128:
+                  for i in range(len(p1)-extra+1):
+                      candidate=p1[:i]+p1[i+extra:]
+                      if h(candidate)==expected_tail_hash:
+                          print(f'Removed {extra} accidental transport characters at offset {i}')
+                          fixed=candidate
+                          break
+              if fixed is None:
+                  raise SystemExit(f'delta-01 transport mismatch len={len(p1)} sha256={h(p1)}')
+              p1=fixed
+          full=p0+p1
+          if len(full)!=62796 or h(full)!=expected_full_hash:
+              raise SystemExit(f'full delta mismatch len={len(full)} sha256={h(full)}')
+          raw=base64.b64decode(full, validate=True)
+          if hashlib.sha256(raw).hexdigest()!='6ff1771eef056ac298a09c82eca0c2d5136bfb640ad64e6538b5b8ba3301cca5':
+              raise SystemExit('decoded delta SHA256 mismatch')
+          Path('delta.tar.gz').write_bytes(raw)
+          print('Delta verified:', len(raw), 'bytes')
+          PY
           gzip -t delta.tar.gz
           tar -xzf delta.tar.gz -C pkg
           test "$(cat pkg/VERSION)" = "1.4.0"
@@ -60,7 +93,6 @@ jobs:
           grep -Fq 'EscalaPlay/1' pkg/planos.html
           grep -Fq '/api/app-notifications.php?action=pull' pkg/app-native-sync.js
           grep -Fq 'etapa=3,respondido=0' pkg/api/quiz_router_v131.php
-          grep -Fq '/api/location-heartbeat.php' pkg/app-native-sync.js pkg/sistema.html pkg/native-app-enhance.js || true
           test -f pkg/administracao-igreja.html
           test -f pkg/notificacoes.html
           test -f pkg/sos.html
