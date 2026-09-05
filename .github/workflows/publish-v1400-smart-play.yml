@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib, base64
+          import hashlib, base64, string
           p0=''.join(Path('.pkg_v1400_bin/delta-00.b64').read_text().split())
           tail=''.join(Path('.pkg_v1400_bin/delta-01.b64').read_text().split())
           def h(s): return hashlib.sha256(s.encode()).hexdigest()
@@ -49,33 +49,27 @@ jobs:
               (16000,'e59c0fa69f4f3dcd0f7a98d233a00b32c3d3090d55c0576d2245a66095930f6b'),
               (16000,'c2527cd1d7041020f5bdae02a04979250c057de649ca296ec870e9fbca645eb3'),
               (14796,'2a8a1ba7f4bb43a4c8d2a9d3a676012e07a1c76f2d78cafc8862df3e5d565472')]
-          def repair(seg, want_len, want_hash, n):
-              print(f'segment {n}: len={len(seg)} sha={h(seg)}')
-              if len(seg)==want_len and h(seg)==want_hash:
+          alphabet=string.ascii_letters+string.digits+'+/'
+          def repair(seg,want_len,want_hash,n):
+              got=h(seg)
+              print(f'segment {n}: len={len(seg)} sha={got}')
+              if len(seg)==want_len and got==want_hash:
                   return seg
-              extra=len(seg)-want_len
-              if extra<0 or extra>64:
-                  raise SystemExit(f'segment {n}: unexpected length delta {extra}')
-              if extra==0:
-                  raise SystemExit(f'segment {n}: same length but different content')
-              # Try one accidental insertion block.
-              for pos in range(len(seg)-extra+1):
-                  c=seg[:pos]+seg[pos+extra:]
-                  if h(c)==want_hash:
-                      print(f'segment {n}: removed {extra} chars at {pos}')
-                      return c
-              # Try two insertion blocks whose total size is `extra`.
-              for a in range(1,extra):
-                  b=extra-a
-                  for p in range(len(seg)-extra+1):
-                      base=seg[:p]+seg[p+a:]
-                      # second deletion after the first, search a bounded full range
-                      for q in range(p, len(base)-b+1):
-                          c=base[:q]+base[q+b:]
+              delta=len(seg)-want_len
+              if delta>0 and delta<=64:
+                  for pos in range(len(seg)-delta+1):
+                      c=seg[:pos]+seg[pos+delta:]
+                      if h(c)==want_hash:
+                          print(f'segment {n}: removed {delta} transport chars at offset {pos}')
+                          return c
+              if delta==-1:
+                  for pos in range(len(seg)+1):
+                      for ch in alphabet:
+                          c=seg[:pos]+ch+seg[pos:]
                           if h(c)==want_hash:
-                              print(f'segment {n}: removed blocks {a}+{b} at {p},{q}')
+                              print(f'segment {n}: restored missing base64 char {ch!r} at offset {pos}')
                               return c
-              raise SystemExit(f'segment {n}: could not repair transport')
+              raise SystemExit(f'segment {n}: deterministic repair failed delta={delta}')
           fixed=[repair(s,*e,n+1) for n,(s,e) in enumerate(zip(segs,expected))]
           full=p0+''.join(fixed)
           full_hash=h(full)
