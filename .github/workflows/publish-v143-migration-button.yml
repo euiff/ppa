@@ -1,0 +1,125 @@
+name: Publish Escala de Proposito v1.4.3 Migration Button
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v143-migration-button.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.2 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.2 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.2"
+
+      - name: Add visible MASTER migration entry
+        run: |
+          set -euo pipefail
+          cat > pkg/master-migration-entry.js <<'JS'
+          (()=>{
+            const TARGET='/migracao-supabase.html';
+            function isMaster(){
+              const t=(document.body?.innerText||'');
+              return t.includes('MASTER') && t.includes('Atualizações') && t.includes('Config. Global');
+            }
+            function addSidebar(){
+              if(!isMaster() || document.getElementById('master-supabase-migration-nav')) return;
+              const links=[...document.querySelectorAll('a')];
+              const update=links.find(a=>(a.textContent||'').trim().includes('Atualizações'));
+              if(!update) return;
+              const link=update.cloneNode(true);
+              link.id='master-supabase-migration-nav';
+              link.setAttribute('href',TARGET);
+              link.removeAttribute('aria-current');
+              const spans=link.querySelectorAll('span');
+              if(spans.length) spans[spans.length-1].textContent='Migração Supabase';
+              else link.textContent='Migração Supabase';
+              update.insertAdjacentElement('afterend',link);
+            }
+            function addQuickButton(){
+              if(!isMaster() || document.getElementById('master-supabase-migration-quick')) return;
+              const b=document.createElement('a');
+              b.id='master-supabase-migration-quick';
+              b.href=TARGET;
+              b.textContent='⇄ Migração Supabase';
+              b.style.cssText='position:fixed;right:18px;bottom:78px;z-index:2147483000;background:#3346d3;color:#fff;padding:10px 14px;border-radius:999px;font:700 12px/1.2 Inter,system-ui,sans-serif;box-shadow:0 10px 28px rgba(15,23,42,.22);text-decoration:none;border:1px solid rgba(255,255,255,.2)';
+              document.body.appendChild(b);
+            }
+            function inject(){ addSidebar(); addQuickButton(); }
+            document.addEventListener('click',e=>{
+              const a=e.target.closest&&e.target.closest('a[href="'+TARGET+'"]');
+              if(a){ e.preventDefault(); location.href=TARGET; }
+            },true);
+            new MutationObserver(inject).observe(document.documentElement,{subtree:true,childList:true});
+            setTimeout(inject,350);setTimeout(inject,1000);setInterval(inject,2200);
+          })();
+          JS
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pkg/sistema.html')
+          s=p.read_text()
+          tag='    <script src="/master-migration-entry.js?v=1430" defer></script>\n'
+          if 'master-migration-entry.js' not in s:
+              s=s.replace('  <script src="/native-app-enhance.js?v=1317"></script></body>', '    <script src="/master-migration-entry.js?v=1430" defer></script>\n  <script src="/native-app-enhance.js?v=1317"></script></body>')
+          p.write_text(s)
+          Path('pkg/VERSION').write_text('1.4.3\n')
+          Path('pkg/ATUALIZACAO-v1.4.3.md').write_text('''# Escala de Propósito v1.4.3\n\n- Corrige a ausência do botão de Migração Supabase no painel MASTER.\n- Adiciona Migração Supabase logo abaixo de Atualizações no menu lateral.\n- Adiciona também um botão rápido visível no canto da tela do MASTER para garantir acesso à migração.\n- Mantém a migração automática privada e todos os recursos da v1.4.2.\n''')
+          PY
+
+      - name: Validate v1.4.3
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.3"
+          grep -Fq 'master-migration-entry.js?v=1430' pkg/sistema.html
+          grep -Fq 'Migração Supabase' pkg/master-migration-entry.js
+          grep -Fq '/migracao-supabase.html' pkg/master-migration-entry.js
+          test -f pkg/migracao-supabase.html
+          php -l pkg/api/migration-import.php
+          node --check pkg/master-migration-entry.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.3.txt
+
+      - name: Publish v1.4.3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.3 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.3 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.3.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.3' \
+            --notes-file pkg/ATUALIZACAO-v1.4.3.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.3
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.3.txt
+          retention-days: 30
