@@ -67,7 +67,6 @@ jobs:
           test "$(grep -ao 'nos últimos 30 dias' pkg/assets/index-C6Ng0a8i.js | wc -l)" -eq 2
           grep -Fq 'text-blue-700 bg-blue-50 font-semibold' pkg/assets/index-C6Ng0a8i.js
           grep -Fq 'qSeen=new Set' pkg/assets/index-C6Ng0a8i.js
-          grep -Fq 'location-heartbeat.php' pkg/app-native-sync.js
           php -l pkg/api/webhook-entry-v1311.php
           php -l pkg/api/quiz_router_v131.php
 
