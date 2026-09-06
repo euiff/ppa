@@ -1,0 +1,104 @@
+name: Publish Escala de Proposito v1.4.1 Volunteer Load
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v141-volunteer-load.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.0 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.0 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.0"
+
+      - name: Add same-day highlight and 30-day frequency
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pkg/assets/index-C6Ng0a8i.js')
+          s=p.read_text()
+
+          old='[J,X]=h.useState(""),[U,z]=h.useState(""),[R,O]=h.useState(!1),Y=h.useCallback(async()=>'
+          new='[J,X]=h.useState(""),[U,z]=h.useState(""),[R,O]=h.useState(!1),[q30,setQ30]=h.useState({}),[sd,setSd]=h.useState({}),Y=h.useCallback(async()=>'
+          assert s.count(old)==1, 'state anchor not found'
+          s=s.replace(old,new,1)
+
+          old='w((Ie||[]).filter(me=>!ce.has(me.id)).sort((me,$)=>(me.nome||"").localeCompare($.nome||"","pt-BR",{numeric:!0})))}if(pe.template_id)'
+          new='''w((Ie||[]).filter(me=>!ce.has(me.id)).sort((me,$)=>(me.nome||"").localeCompare($.nome||"","pt-BR",{numeric:!0})));try{const qStartDate=new Date(pe.data+"T00:00:00");qStartDate.setDate(qStartDate.getDate()-29);const qStart=qStartDate.toISOString().slice(0,10),{data:qScales}=await I.from("escalas").select("id, data").eq("igreja_id",pe.igreja_id).gte("data",qStart).lte("data",pe.data),qScaleIds=(qScales||[]).map(qs=>qs.id),qScaleDate={};(qScales||[]).forEach(qs=>{qScaleDate[qs.id]=qs.data});const{data:qItems}=qScaleIds.length?await I.from("escala_itens").select("voluntario_id, escala_id").in("escala_id",qScaleIds):{data:[]},qCounts={},qDay={},qSeen=new Set;(qItems||[]).forEach(qi=>{if(!qi.voluntario_id||!qi.escala_id)return;const qKey=qi.voluntario_id+":"+qi.escala_id;if(!qSeen.has(qKey)){qSeen.add(qKey),qCounts[qi.voluntario_id]=(qCounts[qi.voluntario_id]||0)+1}qScaleDate[qi.escala_id]===pe.data&&(qDay[qi.voluntario_id]=!0)}),setQ30(qCounts),setSd(qDay)}catch(qErr){console.warn("[EscalaDetail] frequência 30 dias",qErr),setQ30({}),setSd({})}}if(pe.template_id)'''
+          assert s.count(old)==1, 'load anchor not found'
+          s=s.replace(old,new,1)
+
+          old='j.map(pe=>r.jsxs(nt,{value:pe.id,className:"text-xs",children:[pe.nome,d.some(q=>q.voluntario_id===pe.id)?" • já escalado":""]},pe.id))'
+          new='j.map(pe=>r.jsx(nt,{value:pe.id,className:`text-xs ${sd[pe.id]?"text-blue-700 bg-blue-50 font-semibold":""}`,children:`${pe.nome} • ${q30[pe.id]||0}x nos últimos 30 dias`},pe.id))'
+          assert s.count(old)==1, 'editor select anchor not found'
+          s=s.replace(old,new,1)
+
+          old='j.map(q=>{const oe=d.some(xe=>xe.voluntario_id===q.id);return r.jsxs(nt,{value:q.id,className:"text-xs",children:[q.nome,oe?" • já escalado":""]},q.id)})'
+          new='j.map(q=>r.jsx(nt,{value:q.id,className:`text-xs ${sd[q.id]?"text-blue-700 bg-blue-50 font-semibold":""}`,children:`${q.nome} • ${q30[q.id]||0}x nos últimos 30 dias`},q.id))'
+          assert s.count(old)==1, 'open-slot select anchor not found'
+          s=s.replace(old,new,1)
+
+          p.write_text(s)
+          Path('pkg/VERSION').write_text('1.4.1\n')
+          Path('pkg/ATUALIZACAO-v1.4.1.md').write_text('''# Escala de Propósito v1.4.1\n\n- No seletor de voluntários, quem já estiver escalado em qualquer escala da mesma igreja no mesmo dia aparece destacado em azul.\n- Cada voluntário mostra quantas escalas únicas teve nos últimos 30 dias.\n- Duas ou mais funções na mesma escala contam apenas uma vez no indicador de frequência.\n- A seleção continua permitida; o destaque é informativo para ajudar a distribuir melhor as escalas.\n- Mantém GPS, WhatsApp, quiz, licença por igreja, SOS Escala e recursos da v1.4.0.\n''')
+          PY
+
+      - name: Validate v1.4.1
+        run: |
+          set -euo pipefail
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.1"
+          test "$(grep -ao 'nos últimos 30 dias' pkg/assets/index-C6Ng0a8i.js | wc -l)" -eq 2
+          grep -Fq 'text-blue-700 bg-blue-50 font-semibold' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'qSeen=new Set' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'location-heartbeat.php' pkg/app-native-sync.js
+          php -l pkg/api/webhook-entry-v1311.php
+          php -l pkg/api/quiz_router_v131.php
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.1.txt
+
+      - name: Publish v1.4.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.1 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.1 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.1.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.1' \
+            --notes-file pkg/ATUALIZACAO-v1.4.1.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.1
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.1.txt
+          retention-days: 30
