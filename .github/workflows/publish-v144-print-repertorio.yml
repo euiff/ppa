@@ -1,0 +1,93 @@
+name: Publish Escala de Proposito v1.4.4 Print Repertorio
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v144-print-repertorio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.3 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.3 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.3"
+
+      - name: Add organized daily print and repertoire
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pkg/assets/index-C6Ng0a8i.js')
+          s=p.read_text()
+          start_anchor='G=()=>{var ke,Fe,ae,ve,De;const pe=te()'
+          end_anchor=';if(a)return r.jsx("p",{className:"text-sm text-muted-foreground p-4",children:"Carregando escala..."})'
+          start=s.find(start_anchor)
+          end=s.find(end_anchor,start)
+          assert start>=0, 'print start anchor not found'
+          assert end>start, 'print end anchor not found'
+          assert s.count(start_anchor)==1, 'unexpected print start count'
+
+          new=r'''printSongs=async()=>{try{let pe=I.from("escalas").select("id").eq("data",l.data).eq("igreja_id",l.igreja_id);l.culto_id&&(pe=pe.eq("culto_id",l.culto_id));const{data:q}=await pe,oe=(q||[]).map(xe=>xe.id).filter(Boolean);if(!oe.length)return[];const{data:xe}=await I.from("setlists").select("id").in("escala_id",oe),ge=(xe||[]).map(ke=>ke.id).filter(Boolean);if(!ge.length)return[];const{data:ke}=await I.from("setlist_itens").select("*, musicas(*)").in("setlist_id",ge).order("ordem"),Fe=[],ae=new Set;(ke||[]).forEach(ve=>{const De=ve.musicas;if(!De)return;const Ne=ve.musica_id||`${De.titulo||""}|${De.artista||""}|${De.tom||""}`;ae.has(Ne)||(ae.add(Ne),Fe.push({titulo:De.titulo||"Música",artista:De.artista||"",tom:De.tom||"",ordem:Number(ve.ordem)||Fe.length+1}))});return Fe.sort((ve,De)=>ve.ordem-De.ordem)}catch(pe){return console.warn("[Impressão] Não foi possível carregar o repertório",pe),[]}},G=async()=>{var pe,q,oe,xe,ge;try{const ke=te(),Fe=await printSongs(),ae=ke.map(ve=>{var De;const Ne=(ve.itens||[]),Ue=B(((De=ve.dept)==null?void 0:De.nome)||"Departamento");return Ne.length?Ne.map(($e,_t)=>{var Ie;return`<tr>${_t===0?`<td class="dept" rowspan="${Ne.length}">${Ue}</td>`:""}<td>${B($e.funcao||"—")}</td><td>${B(((Ie=$e.profile)==null?void 0:Ie.nome)||"Vaga em aberto")}</td><td>${B(Vf($e.status_confirmacao).text)}</td></tr>`}).join(""):`<tr><td class="dept">${Ue}</td><td>—</td><td>Vaga em aberto</td><td>—</td></tr>`}).join(""),ve=Fe.length?`<section class="songs"><h2>Repertório de músicas</h2><table><thead><tr><th style="width:8%">#</th><th style="width:47%">Música</th><th style="width:30%">Artista</th><th style="width:15%">Tom</th></tr></thead><tbody>${Fe.map((De,Ne)=>`<tr><td>${Ne+1}</td><td>${B(De.titulo)}</td><td>${B(De.artista||"—")}</td><td>${B(De.tom||"—")}</td></tr>`).join("")}</tbody></table></section>`:"",De=window.open("","_blank","width=1100,height=800");if(!De){V.error("Permita pop-ups para imprimir a escala.");return}const Ne=B(((pe=l.igrejas)==null?void 0:pe.nome)||"Escala de Propósito"),Ue=B(((oe=(q=l.cultos)==null?void 0:q.nome)==null?void 0:oe.replace(/\s\d{2}:\d{2}$/,""))||"Culto"),$e=B(((ge=(xe=l.cultos)==null?void 0:xe.horario)==null?void 0:ge.slice(0,5))||"—"),_t=l.ensaio_data?`<p class="extra"><strong>Ensaio:</strong> ${B(new Date(l.ensaio_data+"T00:00:00").toLocaleDateString("pt-BR"))}${l.ensaio_horario?` às ${B(String(l.ensaio_horario).slice(0,5))}`:""}</p>`:"",Ie=l.observacoes?`<p class="extra"><strong>Observações:</strong> ${B(l.observacoes)}</p>`:"";De.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Escala ${B(l.data)}</title><style>
+*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:10mm;background:#fff;font-size:12px}h1{font-size:19px;margin:0 0 4px;font-weight:800;text-transform:uppercase}.service,.date,.extra{margin:2px 0 0}.date{text-transform:capitalize;margin-bottom:10px}.extra{font-size:11px;color:#333}.scale{margin-top:10px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #8f8f8f;padding:7px 8px;vertical-align:middle;word-break:break-word}th{background:#f3f3f3;text-align:left;font-weight:700}.dept{font-weight:700}.songs{margin-top:16px}.songs h2{font-size:15px;margin:0 0 6px}.footer{font-size:9px;color:#666;margin-top:12px}tr{break-inside:avoid;page-break-inside:avoid}@page{size:A4;margin:10mm}@media print{body{padding:0}th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body><h1>${Ne}</h1><p class="service"><strong>${Ue}</strong> — ${$e}</p><p class="date">${B(re())}</p>${_t}${Ie}<table class="scale"><thead><tr><th style="width:28%">Departamento</th><th style="width:27%">Função</th><th style="width:30%">Voluntário</th><th style="width:15%">Situação</th></tr></thead><tbody>${ae}</tbody></table>${ve}<div class="footer">Gerado em ${B(new Date().toLocaleString("pt-BR"))}</div><script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`),De.document.close()}catch(ke){V.error((ke==null?void 0:ke.message)||"Não foi possível preparar a impressão")}},he=async()=>{var pe,q,oe,xe,ge,ke;try{const[{jsPDF:Fe},ae]=await Promise.all([ji(()=>import("./jspdf.es.min-CHgK7W8e.js").then(ve=>ve.j),[]),ji(()=>import("./jspdf.plugin.autotable-CHGJwQue.js"),[])]),ve=ae.default,De=te(),Ne=await printSongs(),Ue=new Fe({unit:"mm",format:"a4"}),$e=Ue.internal.pageSize.getWidth(),_t=String(((pe=l.igrejas)==null?void 0:pe.nome)||"Escala de Propósito").toUpperCase(),Ie=((oe=(q=l.cultos)==null?void 0:q.nome)==null?void 0:oe.replace(/\s\d{2}:\d{2}$/,""))||"Culto",it=((ge=(xe=l.cultos)==null?void 0:xe.horario)==null?void 0:ge.slice(0,5))||"—",ce=[];De.forEach(me=>{var $;const ue=(me.itens||[]),Me=String((($=me.dept)==null?void 0:$.nome)||"Departamento");ue.length?ue.forEach((He,We)=>{var nt;ce.push([We===0?Me:"",He.funcao||"—",((nt=He.profile)==null?void 0:nt.nome)||"Vaga em aberto",Vf(He.status_confirmacao).text])}):ce.push([Me,"—","Vaga em aberto","—"])}),Ue.setTextColor(20,20,20),Ue.setFont("helvetica","bold"),Ue.setFontSize(15),Ue.text(_t,14,16),Ue.setFontSize(10),Ue.text(`${Ie} — ${it}`,14,23),Ue.setFont("helvetica","normal"),Ue.setFontSize(9.5),Ue.text(re(),14,29);let me=36;l.ensaio_data&&(Ue.setFontSize(8.5),Ue.text(`Ensaio: ${new Date(l.ensaio_data+"T00:00:00").toLocaleDateString("pt-BR")}${l.ensaio_horario?` às ${String(l.ensaio_horario).slice(0,5)}`:""}`,14,me),me+=5),l.observacoes&&(Ue.setFontSize(8.5),Ue.text(Ue.splitTextToSize(`Observações: ${l.observacoes}`,182),14,me),me+=7),ve(Ue,{startY:me,head:[["Departamento","Função","Voluntário","Situação"]],body:ce,theme:"grid",margin:{left:14,right:14},styles:{fontSize:8.2,cellPadding:2.2,textColor:[20,20,20],lineColor:[140,140,140],lineWidth:.2,overflow:"linebreak",valign:"middle"},headStyles:{fillColor:[243,243,243],textColor:[20,20,20],fontStyle:"bold"},columnStyles:{0:{cellWidth:50,fontStyle:"bold"},1:{cellWidth:47},2:{cellWidth:55},3:{cellWidth:30}}});let $=(((ke=Ue.lastAutoTable)==null?void 0:ke.finalY)||me)+8;if(Ne.length){$>245&&(Ue.addPage(),$=18),Ue.setFont("helvetica","bold"),Ue.setFontSize(12),Ue.text("Repertório de músicas",14,$),ve(Ue,{startY:$+4,head:[["#","Música","Artista","Tom"]],body:Ne.map((ue,Me)=>[String(Me+1),ue.titulo,ue.artista||"—",ue.tom||"—"]),theme:"grid",margin:{left:14,right:14},styles:{fontSize:8.2,cellPadding:2.2,textColor:[20,20,20],lineColor:[140,140,140],lineWidth:.2,overflow:"linebreak"},headStyles:{fillColor:[243,243,243],textColor:[20,20,20],fontStyle:"bold"},columnStyles:{0:{cellWidth:12},1:{cellWidth:84},2:{cellWidth:58},3:{cellWidth:28}}})}const ue=Ue.getNumberOfPages(),Me=new Date().toLocaleString("pt-BR");for(let He=1;He<=ue;He++)Ue.setPage(He),Ue.setFont("helvetica","normal"),Ue.setFontSize(7.5),Ue.setTextColor(110,110,110),Ue.text(`Gerado em ${Me} • Página ${He} de ${ue}`,$e/2,291,{align:"center"});Ue.save(`escala-${l.data}-${String(((ke=l.cultos)==null?void 0:ke.nome)||"culto").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.pdf`),V.success("PDF da escala gerado com o repertório!")}catch(Fe){V.error((Fe==null?void 0:Fe.message)||"Não foi possível gerar o PDF")}}'''
+
+          p.write_text(s[:start]+new+s[end:])
+          Path('pkg/VERSION').write_text('1.4.4\n')
+          Path('pkg/ATUALIZACAO-v1.4.4.md').write_text('''# Escala de Propósito v1.4.4\n\n- Ao imprimir a escala do dia, gera uma tabela única e organizada com Departamento, Função, Voluntário e Situação.\n- O departamento fica agrupado visualmente, seguindo o modelo de impressão solicitado.\n- Inclui automaticamente o Repertório de músicas no final, com Música, Artista e Tom.\n- Busca o repertório em todas as escalas da mesma igreja, data e culto, para funcionar independentemente do departamento aberto.\n- O botão Baixar PDF gera o mesmo conteúdo em A4.\n- Mantém ensaio e observações quando cadastrados.\n- Mantém todos os recursos da v1.4.3.\n''')
+          PY
+
+      - name: Validate v1.4.4
+        run: |
+          set -euo pipefail
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.4"
+          grep -Fq 'printSongs=async' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'Repertório de músicas' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'Departamento","Função","Voluntário","Situação' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'PDF da escala gerado com o repertório!' pkg/assets/index-C6Ng0a8i.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.4.txt
+
+      - name: Publish v1.4.4
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.4 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.4 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.4.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.4' \
+            --notes-file pkg/ATUALIZACAO-v1.4.4.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.4
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.4.txt
+          retention-days: 30
