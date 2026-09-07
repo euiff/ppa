@@ -1,0 +1,89 @@
+name: Publish Escala de Proposito v1.4.9 Fixed Church Code
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v149-fixed-church-code.yml'
+      - 'scripts/patch-v149-fixed-church-code.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.8 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.8 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.8"
+
+      - name: Make church code permanent
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v149-fixed-church-code.py pkg
+          printf '1.4.9\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.9.md <<'EOF'
+          # Escala de Propósito v1.4.9
+
+          - Remove o botão "GERAR NOVO" da tela Código da Igreja.
+          - Cada igreja mantém permanentemente o código gerado pelo sistema.
+          - O código atual não é alterado durante a atualização.
+          - Voluntários e líderes continuam entrando com o mesmo código já existente.
+          - Mantém os botões Copiar Código, Copiar Link de Convite e Compartilhar.
+          - Bloqueia também a regeneração direta pela API, evitando troca acidental do código.
+          - Mantém todos os recursos da v1.4.8.
+          EOF
+
+      - name: Validate v1.4.9
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v149-fixed-church-code.py
+          php -l pkg/api/church-code.php
+          test "$(cat pkg/VERSION)" = "1.4.9"
+          ! grep -Fq 'GERAR NOVO' pkg/codigo-igreja.html
+          ! grep -Fq 'regen.onclick' pkg/codigo-igreja.html
+          ! grep -Fq 'tenant_v1323_regenerate_code($igreja)' pkg/api/church-code.php
+          grep -Fq 'código permanente da igreja' pkg/codigo-igreja.html
+          grep -Fq 'O código da igreja é permanente e não pode ser regenerado.' pkg/api/church-code.php
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.9.txt
+
+      - name: Publish v1.4.9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.9 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.9 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.9.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.9' \
+            --notes-file pkg/ATUALIZACAO-v1.4.9.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.9
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.9.txt
+          retention-days: 30
