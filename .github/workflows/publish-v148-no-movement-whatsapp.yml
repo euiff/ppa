@@ -1,0 +1,90 @@
+name: Publish Escala de Proposito v1.4.8 No Movement WhatsApp
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v148-no-movement-whatsapp.yml'
+      - 'scripts/patch-v148-no-movement-whatsapp.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.7 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.7 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.7"
+
+      - name: Disable movement WhatsApp and keep tracking map
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v148-no-movement-whatsapp.py pkg
+          printf '1.4.8\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.8.md <<'EOF'
+          # Escala de Propósito v1.4.8
+
+          - Remove mensagens de WhatsApp de movimentação do voluntário, como "está a caminho".
+          - Também deixa de enviar avisos de movimentação por WhatsApp em check-in e check-out automáticos.
+          - O rastreamento GPS continua funcionando normalmente dentro da janela de privacidade.
+          - Líder, pastor e administradores continuam vendo no Mapa de Voluntários quem está chegando, perto ou na igreja.
+          - Mantém check-in/check-out automático, mapa em tempo real, status de distância e todos os demais recursos.
+          - Atualiza o cache do PWA para os aparelhos receberem a correção.
+          - Mantém todos os recursos da v1.4.7.
+          EOF
+
+      - name: Validate v1.4.8
+        run: |
+          set -euo pipefail
+          node --check pkg/assets/index-C6Ng0a8i.js
+          python3 -m py_compile scripts/patch-v148-no-movement-whatsapp.py
+          test "$(cat pkg/VERSION)" = "1.4.8"
+          ! grep -Fq 'I.functions.invoke("notify-movement"' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'volunteer_locations' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'Mapa de Voluntários' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.8' pkg/sistema.html
+          grep -Fq 'no-movement-whatsapp-cache-bust-v1.4.8' pkg/sw.js
+          grep -Fq "updateViaCache:'none'" pkg/registerSW.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.8.txt
+
+      - name: Publish v1.4.8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.8 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.8 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.8.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.8' \
+            --notes-file pkg/ATUALIZACAO-v1.4.8.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.8
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.8.txt
+          retention-days: 30
