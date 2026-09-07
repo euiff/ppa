@@ -1,0 +1,88 @@
+name: Publish Escala de Proposito v1.4.7 Print Dialog A4
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v147-print-dialog-a4.yml'
+      - 'scripts/patch-v147.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.6 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.6 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.6"
+
+      - name: Apply direct print dialog and A4
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v147.py pkg
+          printf '1.4.7\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.7.md <<'EOF'
+          # Escala de Propósito v1.4.7
+
+          - Corrige o botão Imprimir para abrir automaticamente a caixa de impressão do navegador, sem deixar apenas a janela about:blank aberta.
+          - Mantém exatamente o modelo visual aprovado na v1.4.6.
+          - Define explicitamente folha A4 em orientação retrato pelo CSS de impressão.
+          - Ao fechar ou concluir a impressão, a janela auxiliar é fechada automaticamente.
+          - Atualiza o cache do PWA/Service Worker para celulares e computadores receberem a correção imediatamente.
+          - Mantém o repertório completo no documento e todos os recursos anteriores.
+          EOF
+
+      - name: Validate v1.4.7
+        run: |
+          set -euo pipefail
+          node --check pkg/assets/index-C6Ng0a8i.js
+          python3 -m py_compile scripts/patch-v147.py
+          test "$(cat pkg/VERSION)" = "1.4.7"
+          grep -Fq 'De.onafterprint=' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'De.print()' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '@page{size:A4 portrait;margin:7mm 7mm 8mm}' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.7' pkg/sistema.html
+          grep -Fq 'print-dialog-a4-cache-bust-v1.4.7' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.7.txt
+
+      - name: Publish v1.4.7
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.7 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.7 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.7.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.7' \
+            --notes-file pkg/ATUALIZACAO-v1.4.7.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.7
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.7.txt
+          retention-days: 30
