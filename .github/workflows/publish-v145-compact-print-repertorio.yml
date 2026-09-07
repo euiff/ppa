@@ -1,0 +1,92 @@
+name: Publish Escala de Proposito v1.4.5 Compact Print Repertorio
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v145-compact-print-repertorio.yml'
+      - 'scripts/patch-v145.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.4 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.4 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.4"
+
+      - name: Apply compact print, repertoire and cache fix
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v145.py pkg
+          printf '1.4.5\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.5.md <<'EOF'
+          # Escala de Propósito v1.4.5
+
+          - Corrige definitivamente o PDF/Imprimir da escala completa do dia.
+          - Reduz as margens A4 para aproveitar praticamente toda a folha e evitar grandes áreas vazias.
+          - Usa uma tabela contínua e compacta: Departamento, Função, Voluntário e Situação.
+          - Remove a coluna Check da impressão, que ocupava espaço e podia exibir caracteres inválidos.
+          - Inclui automaticamente o Repertório do culto no mesmo documento, com ordem, Música, Artista e Tom.
+          - O repertório é buscado diretamente nas escalas/departamentos que compõem aquele mesmo culto do dia.
+          - Permite continuar em uma segunda página somente quando o conteúdo realmente não couber na primeira.
+          - Corrige cache do PWA/Service Worker para impedir que celulares continuem usando o gerador antigo após atualizar.
+          - Mantém todos os recursos da v1.4.4.
+          EOF
+
+      - name: Validate v1.4.5
+        run: |
+          set -euo pipefail
+          node --check pkg/assets/index-C6Ng0a8i.js
+          python3 -m py_compile scripts/patch-v145.py
+          test "$(cat pkg/VERSION)" = "1.4.5"
+          grep -Fq 'PDF completo gerado com escala e repertório!' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'margin:{left:6,right:6,top:5,bottom:7}' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'Nenhuma música cadastrada no repertório deste culto.' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.5' pkg/sistema.html
+          grep -Fq 'print-repertorio-cache-bust-v1.4.5' pkg/sw.js
+          grep -Fq "updateViaCache:'none'" pkg/registerSW.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.5.txt
+
+      - name: Publish v1.4.5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.5 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.5 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.5.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.5' \
+            --notes-file pkg/ATUALIZACAO-v1.4.5.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.5
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.5.txt
+          retention-days: 30
