@@ -1,0 +1,96 @@
+name: Publish Escala de Proposito v1.4.6 Modelo PDF
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v146-modelo-pdf.yml'
+      - 'scripts/patch-v146.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.5 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.5 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.5"
+
+      - name: Apply reference PDF layout
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v146.py pkg
+          printf '1.4.6\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.6.md <<'EOF'
+          # Escala de Propósito v1.4.6
+
+          - Ajusta Imprimir e Baixar PDF para seguir o modelo visual enviado como referência.
+          - Aumenta significativamente o tamanho das letras para melhorar a leitura em A4.
+          - Mantém a organização em quatro colunas: Departamento, Função, Voluntário e Situação.
+          - Agrupa visualmente o nome do departamento em uma única célula vertical, igual ao modelo de referência.
+          - Usa margens, larguras de colunas, linhas e espaçamento semelhantes ao modelo enviado.
+          - Remove o resumo compacto que deixava o cabeçalho carregado e mantém Igreja, Culto, Horário e Data em destaque.
+          - Repertório segue o mesmo padrão visual, com #, Música, Artista e Tom em fonte legível.
+          - O repertório continua sendo incluído automaticamente no mesmo PDF.
+          - Atualiza o cache do PWA para carregar imediatamente o novo modelo de impressão.
+          - Mantém todos os recursos da v1.4.5.
+          EOF
+
+      - name: Validate v1.4.6
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v146.py
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.6"
+          grep -Fq 'rowspan="${Ne.length}"' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'font-size:11.5px' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '@page{size:A4;margin:7mm 7mm 8mm}' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'fontSize:9.2,cellPadding:1.85' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'rowSpan:$.length' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'PDF gerado no modelo de impressão com escala e repertório!' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.6' pkg/sistema.html
+          grep -Fq 'modelo-pdf-cache-bust-v1.4.6' pkg/sw.js
+          grep -Fq "updateViaCache:'none'" pkg/registerSW.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.6.txt
+
+      - name: Publish v1.4.6
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.6 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.6 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.6.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.6' \
+            --notes-file pkg/ATUALIZACAO-v1.4.6.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.6
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.6.txt
+          retention-days: 30
