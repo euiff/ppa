@@ -1,0 +1,112 @@
+name: Publish Escala de Proposito v1.4.14 Quiz Dispatch Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1414-quiz-dispatch.yml'
+      - 'scripts/patch-v1414-quiz-dispatch.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.13 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.13 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.13"
+
+      - name: Restore proven quiz dispatch state
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1414-quiz-dispatch.py pkg
+          printf '1.4.14\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.14.md <<'EOF'
+          # Escala de Propósito v1.4.14
+
+          - Corrige a regressão da v1.4.13 que podia interromper o fluxo normal do quiz pós-culto.
+          - A regra de disparo volta a ficar exatamente como antes: o quiz continua sendo procurado e enviado 3 horas após o início da escala, dentro da mesma janela e para os mesmos status já usados pelo sistema.
+          - O estado interno após o envio volta a usar `etapa=1`, como no fluxo estável anterior; não usamos mais `etapa=5` para identificar o novo formato.
+          - O novo quiz continua com apenas uma pergunta de avaliação de 1 a 5.
+          - Na mesma resposta o voluntário pode acrescentar comentário ou sugestão, por exemplo: `5 - Gostei muito do culto`.
+          - Depois da resposta válida o sistema registra a nota/comentário e envia imediatamente a mensagem de agradecimento.
+          - Quizzes enviados pela v1.4.13 com etapa 5 continuam reconhecidos e podem ser respondidos normalmente.
+          - Quizzes antigos que já estavam em andamento continuam compatíveis com o fluxo anterior.
+          - Mantém todos os recursos da v1.4.13.
+          EOF
+
+      - name: Validate v1.4.14
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1414-quiz-dispatch.py
+          php -l pkg/api/automation_v130.php
+          php -l pkg/api/quiz_router_v131.php
+          php -l pkg/api/pending_router_v1311.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.14"
+          grep -Fq "quiz_mode'=>'single_v1414'" pkg/api/automation_v130.php
+          grep -Fq "quiz_enviado=1,etapa=1" pkg/api/automation_v130.php
+          grep -Fq "if(!$start||time()<$start+10800)continue;" pkg/api/automation_v130.php
+          grep -Fq "post_quiz_max_age_hours" pkg/api/automation_v130.php
+          grep -Fq "status_confirmacao IN ('confirmado','pendente','faltou','tarde')" pkg/api/automation_v130.php
+          grep -Fq "function v1414_quiz_is_single" pkg/api/quiz_router_v131.php
+          grep -Fq "single_v1413" pkg/api/quiz_router_v131.php
+          grep -Fq "quiz_single_completed" pkg/api/quiz_router_v131.php
+          grep -Fq "Comentário / Sugestão (opcional)" pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.14' pkg/sistema.html
+          grep -Fq 'quiz-dispatch-cache-bust-v1.4.14' pkg/sw.js
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('pkg/api/automation_v130.php').read_text()
+          a=s.index('function v130_send_quiz')
+          b=s.index('function v130_due_quizzes',a)
+          send=s[a:b]
+          assert 'etapa=5' not in send, 'dispatcher ainda usa etapa=5'
+          due=s[b:s.index('function v131_repair_quiz_noise',b)]
+          for token in ["time()<$start+10800", "post_quiz_max_age_hours", "status_confirmacao IN ('confirmado','pendente','faltou','tarde')"]:
+              assert token in due, token
+          PY
+          php -r 'require "pkg/api/quiz_router_v131.php"; $a=v1413_parse_single_quiz_answer("5 - Gostei Muito"); if(!$a || $a[0]!==5 || $a[1]!=="Gostei Muito") exit(1); $b=v1413_parse_single_quiz_answer("51"); if($b!==null) exit(2);'
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.14.txt
+
+      - name: Publish v1.4.14
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.14 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.14 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.14.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.14' \
+            --notes-file pkg/ATUALIZACAO-v1.4.14.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.14
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.14.txt
+          retention-days: 30
