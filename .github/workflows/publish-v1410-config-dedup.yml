@@ -1,0 +1,88 @@
+name: Publish Escala de Proposito v1.4.10 Config Dedup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1410-config-dedup.yml'
+      - 'scripts/patch-v1410-config-dedup.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.9 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.9 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.9"
+
+      - name: Fix duplicated Config Global cards
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1410-config-dedup.py pkg
+          printf '1.4.10\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.10.md <<'EOF'
+          # Escala de Propósito v1.4.10
+
+          - Corrige a duplicação dos cartões na tela Config. Global.
+          - Notificações, SOS Escala, Privacidade e conta e Sobre o app passam a aparecer somente uma vez.
+          - Corrige a condição de corrida causada pelo MutationObserver ao carregar o cartão Administração da igreja.
+          - Mantém Administração da igreja quando disponível, sem duplicar os demais itens.
+          - Atualiza o cache do PWA para computadores e celulares receberem a correção.
+          - Mantém todos os recursos da v1.4.9.
+          EOF
+
+      - name: Validate v1.4.10
+        run: |
+          set -euo pipefail
+          node --check pkg/smart-features.js
+          python3 -m py_compile scripts/patch-v1410-config-dedup.py
+          test "$(cat pkg/VERSION)" = "1.4.10"
+          grep -Fq "box.appendChild(holder);" pkg/smart-features.js
+          grep -Fq "if(!document.getElementById('sf-privacy'))" pkg/smart-features.js
+          grep -Fq '/smart-features.js?v=1410' pkg/sistema.html
+          grep -Fq 'config-dedup-cache-bust-v1.4.10' pkg/sw.js
+          grep -Fq "updateViaCache:'none'" pkg/registerSW.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.10.txt
+
+      - name: Publish v1.4.10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.10 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.10 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.10.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.10' \
+            --notes-file pkg/ATUALIZACAO-v1.4.10.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.10
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.10.txt
+          retention-days: 30
