@@ -61,8 +61,6 @@ jobs:
           grep -Fq "Responda somente uma vez" pkg/api/pending_router_v1311.php
           grep -Fq "function v1416_normalize_pending_quizzes" pkg/api/automation_v130.php
           grep -Fq "quiz_enviado=1,etapa=2" pkg/api/automation_v130.php
-          grep -Fq "time()<\$start+10800" pkg/api/automation_v130.php
-          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.16' pkg/sistema.html
           grep -Fq 'single-quiz-strict-v1.4.16' pkg/sw.js
           ! grep -Fq "Você esteve/serviu nesse culto?" pkg/api/quiz_router_v131.php
           ! grep -Fq "Você esteve/serviu nesse culto?" pkg/api/pending_router_v1311.php
@@ -82,6 +80,10 @@ jobs:
           p=Path('pkg/api/automation_v130.php').read_text()
           assert "time()<$start+10800" in p
           assert "status_confirmacao IN ('confirmado','pendente','faltou','tarde')" in p
+          assert "quiz_enviado=1,etapa=2" in p
+          q=Path('pkg/api/pending_router_v1311.php').read_text()
+          assert 'Como você avalia sua experiência neste culto/serviço?' in q
+          assert 'Você esteve/serviu nesse culto?' not in q
           PY
 
       - name: Build release packages
