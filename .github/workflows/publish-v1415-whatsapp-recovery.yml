@@ -1,0 +1,103 @@
+name: Publish Escala de Proposito v1.4.15 WhatsApp Recovery
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1415-whatsapp-recovery.yml'
+      - 'scripts/patch-v1415-whatsapp-recovery.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download current and known-good WhatsApp bases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.14 -p escala-de-proposito-cpanel.zip --clobber
+          mv escala-de-proposito-cpanel.zip current.zip
+          gh release download v1.4.12 -p escala-de-proposito-cpanel.zip --clobber
+          mv escala-de-proposito-cpanel.zip stable.zip
+          unzip -t current.zip >/dev/null
+          unzip -t stable.zip >/dev/null
+          mkdir pkg stable
+          unzip -q current.zip -d pkg
+          unzip -q stable.zip -d stable
+          test "$(cat pkg/VERSION)" = "1.4.14"
+          test "$(cat stable/VERSION)" = "1.4.12"
+
+      - name: Restore WhatsApp transport and apply isolated one-question quiz
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1415-whatsapp-recovery.py pkg stable
+          printf '1.4.15\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.15.md <<'EOF'
+          # Escala de Propósito v1.4.15
+
+          - Hotfix de recuperação do WhatsApp após a regressão das versões 1.4.13/1.4.14.
+          - Restaura `confirmation_router_v1311.php` e `pending_router_v1311.php` exatamente da base estável v1.4.12.
+          - Restaura o motor estável de envio/recebimento e mantém apenas uma alteração isolada no quiz.
+          - Invalida o estado de sincronização do webhook para obrigar novo registro automático na Evolution no próximo ciclo do CRON.
+          - Recoloca na fila notificações de escala que falharam nas últimas horas, sem reenviar itens que já possuem registro de envio bem-sucedido.
+          - Converte quizzes pendentes criados pelas v1.4.13/v1.4.14 para o formato compatível.
+          - O quiz continua sendo disparado pela MESMA regra anterior: 3 horas após o início da escala.
+          - O quiz novo tem uma única resposta: nota de 1 a 5 e comentário/sugestão opcional na mesma mensagem.
+          - Após responder, o sistema registra a avaliação e envia o agradecimento imediatamente.
+          - Mantém todos os recursos visuais e funcionais da v1.4.14 fora do transporte do WhatsApp.
+          EOF
+
+      - name: Validate recovery package
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1415-whatsapp-recovery.py
+          php -l pkg/api/automation_v130.php
+          php -l pkg/api/quiz_router_v131.php
+          php -l pkg/api/confirmation_router_v1311.php
+          php -l pkg/api/pending_router_v1311.php
+          cmp -s pkg/api/confirmation_router_v1311.php stable/api/confirmation_router_v1311.php
+          cmp -s pkg/api/pending_router_v1311.php stable/api/pending_router_v1311.php
+          grep -Fq "quiz_enviado=1,etapa=2" pkg/api/automation_v130.php
+          grep -Fq "quiz_single_completed" pkg/api/quiz_router_v131.php
+          grep -Fq "20260908_1415_whatsapp_recovery.sql" <(find pkg/database/migrations -maxdepth 1 -type f -printf '%f\n')
+          grep -Fq "whatsapp_webhook_sync_signature" pkg/database/migrations/20260908_1415_whatsapp_recovery.sql
+          grep -Fq "status IN ('failed','running')" pkg/database/migrations/20260908_1415_whatsapp_recovery.sql
+          test "$(cat pkg/VERSION)" = "1.4.15"
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.15.txt
+
+      - name: Publish v1.4.15
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.15 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.15 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.15.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.15' \
+            --notes-file pkg/ATUALIZACAO-v1.4.15.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.15
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.15.txt
+          retention-days: 30
