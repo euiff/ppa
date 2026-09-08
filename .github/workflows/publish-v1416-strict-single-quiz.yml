@@ -1,0 +1,117 @@
+name: Publish Escala de Proposito v1.4.16 Strict Single Quiz
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1416-strict-single-quiz.yml'
+      - 'scripts/patch-v1416-strict-single-quiz.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.15 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.15 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.15"
+
+      - name: Apply strict one-question quiz
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1416-strict-single-quiz.py pkg
+          printf '1.4.16\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.16.md <<'EOF'
+          # Escala de Propósito v1.4.16
+
+          - Quiz pós-culto estritamente com uma única pergunta/resposta.
+          - Remove de vez a pergunta “Você esteve/serviu nesse culto?”.
+          - Remove de vez a pergunta final separada de comentário/sugestão.
+          - O voluntário responde apenas uma vez: `1`, `2`, `3`, `4` ou `5`.
+          - Se quiser, acrescenta comentário/sugestão na mesma mensagem, por exemplo: `5 - Gostei muito do culto`.
+          - Após uma resposta válida, o sistema salva nota/comentário e envia somente a mensagem de agradecimento.
+          - Quizzes pendentes antigos são normalizados para o formato de uma única pergunta.
+          - Mantém intacto o transporte do WhatsApp recuperado na v1.4.15.
+          - Mantém a mesma regra de disparo: 3 horas após o início da escala.
+          EOF
+
+      - name: Validate v1.4.16
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1416-strict-single-quiz.py
+          php -l pkg/api/quiz_router_v131.php
+          php -l pkg/api/pending_router_v1311.php
+          php -l pkg/api/automation_v130.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.16"
+          grep -Fq "function v1416_parse_single_quiz_answer" pkg/api/quiz_router_v131.php
+          grep -Fq "quiz_single_completed_v1416" pkg/api/quiz_router_v131.php
+          grep -Fq "Responda somente uma vez" pkg/api/quiz_router_v131.php
+          grep -Fq "Responda somente uma vez" pkg/api/pending_router_v1311.php
+          grep -Fq "function v1416_normalize_pending_quizzes" pkg/api/automation_v130.php
+          grep -Fq "quiz_enviado=1,etapa=2" pkg/api/automation_v130.php
+          grep -Fq "time()<\$start+10800" pkg/api/automation_v130.php
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.16' pkg/sistema.html
+          grep -Fq 'single-quiz-strict-v1.4.16' pkg/sw.js
+          ! grep -Fq "Você esteve/serviu nesse culto?" pkg/api/quiz_router_v131.php
+          ! grep -Fq "Você esteve/serviu nesse culto?" pkg/api/pending_router_v1311.php
+          ! grep -Fq "Última pergunta" pkg/api/quiz_router_v131.php
+          ! grep -Fq "Envie sua sugestão/comentário" pkg/api/pending_router_v1311.php
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('pkg/api/quiz_router_v131.php').read_text()
+          a=s.index('function v131_handle_active_quiz')
+          b=s.index('function v131_quiz_router_handle',a)
+          h=s[a:b]
+          assert "etapa === 1" not in h
+          assert "etapa === 3" not in h
+          assert "quiz_step2" not in h
+          assert "quiz_completed_step3" not in h
+          assert "quiz_single_completed_v1416" in h
+          p=Path('pkg/api/automation_v130.php').read_text()
+          assert "time()<$start+10800" in p
+          assert "status_confirmacao IN ('confirmado','pendente','faltou','tarde')" in p
+          PY
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.16.txt
+
+      - name: Publish v1.4.16
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.16 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.16 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.16.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.16' \
+            --notes-file pkg/ATUALIZACAO-v1.4.16.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.16
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.16.txt
+          retention-days: 30
