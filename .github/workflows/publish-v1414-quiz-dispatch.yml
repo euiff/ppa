@@ -57,7 +57,7 @@ jobs:
           test "$(cat pkg/VERSION)" = "1.4.14"
           grep -Fq "quiz_mode'=>'single_v1414'" pkg/api/automation_v130.php
           grep -Fq "quiz_enviado=1,etapa=1" pkg/api/automation_v130.php
-          grep -Fq "if(!$start||time()<$start+10800)continue;" pkg/api/automation_v130.php
+          grep -Fq 'if(!$start||time()<$start+10800)continue;' pkg/api/automation_v130.php
           grep -Fq "post_quiz_max_age_hours" pkg/api/automation_v130.php
           grep -Fq "status_confirmacao IN ('confirmado','pendente','faltou','tarde')" pkg/api/automation_v130.php
           grep -Fq "function v1414_quiz_is_single" pkg/api/quiz_router_v131.php
