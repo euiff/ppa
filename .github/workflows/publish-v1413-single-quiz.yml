@@ -27,6 +27,22 @@ jobs:
           unzip -q escala-de-proposito-cpanel.zip -d pkg
           test "$(cat pkg/VERSION)" = "1.4.12"
 
+      - name: Fix patch script quoting
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/patch-v1413-single-quiz.py')
+          lines=p.read_text().splitlines()
+          for i,line in enumerate(lines):
+              if line.startswith("s=re.sub(r'/assets/index-C6Ng0a8i"):
+                  lines[i] = r'''s=re.sub(r"/assets/index-C6Ng0a8i\.js\?v=[^\"']+", "/assets/index-C6Ng0a8i.js?v=1.4.13", s)'''
+              elif line.startswith("s=re.sub(r'/smart-features"):
+                  lines[i] = r'''s=re.sub(r"/smart-features\.js\?v=[^\"']+", "/smart-features.js?v=1413", s)'''
+          p.write_text('\n'.join(lines)+'\n')
+          PY
+          python3 -m py_compile scripts/patch-v1413-single-quiz.py
+
       - name: Apply single-question quiz
         run: |
           set -euo pipefail
