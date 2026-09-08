@@ -1,0 +1,106 @@
+name: Publish Escala de Proposito v1.4.17 Leader Response WhatsApp
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1417-leader-response-whatsapp.yml'
+      - 'scripts/patch-v1417-leader-response-whatsapp.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.16 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.16 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.16"
+
+      - name: Apply leader response WhatsApp notification
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1417-leader-response-whatsapp.py pkg
+          printf '1.4.17\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.17.md <<'EOF'
+          # Escala de Propósito v1.4.17
+
+          - Quando o voluntário confirma ou recusa uma escala, o responsável passa a receber a resposta também pelo WhatsApp.
+          - Prioridade do destinatário: usuário que criou a escala; se não houver WhatsApp válido, líder do departamento; como último fallback, administrador principal da igreja.
+          - A mensagem mostra voluntário, culto, data, horário, departamento, função e o status da resposta.
+          - Se a recusa pelo aplicativo já tiver motivo, o motivo vai na mesma mensagem ao responsável.
+          - Se a recusa vier pelo WhatsApp, o responsável recebe o aviso da recusa e, quando o voluntário informar o motivo, recebe o motivo em seguida.
+          - Evita duplicar a mesma confirmação/recusa para o mesmo responsável em um intervalo curto.
+          - Corrige o antigo `notify-leader` do aplicativo para usar o backend PHP local, sem depender da função antiga do Supabase.
+          - Mantém intactos o envio das escalas, o webhook, as respostas pelo WhatsApp e o quiz de uma única pergunta da v1.4.16.
+          EOF
+
+      - name: Validate v1.4.17
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1417-leader-response-whatsapp.py
+          php -l pkg/api/scale_response_notify_v1417.php
+          php -l pkg/api/scale-response-notify.php
+          php -l pkg/api/confirmation_router_v1311.php
+          php -l pkg/api/pending_router_v1311.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.17"
+          grep -Fq "v1417_notify_scale_response" pkg/api/confirmation_router_v1311.php
+          grep -Fq "v1417_notify_refusal_reason" pkg/api/pending_router_v1311.php
+          grep -Fq "whatsapp_scale_response_leader" pkg/api/scale_response_notify_v1417.php
+          grep -Fq "scale-response-notify.php" pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.17' pkg/sistema.html
+          grep -Fq 'scale-response-leader-whatsapp-v1.4.17' pkg/sw.js
+          python3 - <<'PY'
+          from pathlib import Path
+          h=Path('pkg/api/scale_response_notify_v1417.php').read_text()
+          for token in ['created_by','departamento_lider_id','admin_user_id','send_logged_whatsapp','whatsapp_scale_response_leader']:
+              assert token in h, token
+          c=Path('pkg/api/confirmation_router_v1311.php').read_text()
+          assert "v1417_notify_scale_response((string)$item['item_id'],$status,'whatsapp')" in c
+          b=Path('pkg/assets/index-C6Ng0a8i.js').read_text()
+          assert 'e==="notify-leader"?await Br("scale-response-notify.php"' in b
+          assert 'await Br("functions.php"' in b
+          PY
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.17.txt
+
+      - name: Publish v1.4.17
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.17 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.17 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.17.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.17' \
+            --notes-file pkg/ATUALIZACAO-v1.4.17.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.17
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.17.txt
+          retention-days: 30
