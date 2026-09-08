@@ -1,0 +1,97 @@
+name: Publish Escala de Proposito v1.4.13 Single Quiz
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1413-single-quiz.yml'
+      - 'scripts/patch-v1413-single-quiz.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.12 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.12 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.12"
+
+      - name: Apply single-question quiz
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1413-single-quiz.py pkg
+          printf '1.4.13\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.13.md <<'EOF'
+          # Escala de Propósito v1.4.13
+
+          - Simplifica o quiz pós-culto para uma única pergunta de avaliação de 1 a 5.
+          - A mesma mensagem do WhatsApp já pergunta se o voluntário deseja deixar comentário ou sugestão.
+          - O voluntário pode responder apenas `5` ou, na mesma mensagem, `5 - comentário ou sugestão`.
+          - Depois de uma única resposta válida, o sistema registra nota/comentário e envia imediatamente a mensagem de agradecimento.
+          - Remove a pergunta separada de presença para os novos quizzes.
+          - No aplicativo, o quiz aberto após o culto também passa a mostrar nota de 1 a 5 e comentário opcional na mesma tela.
+          - Mantém compatibilidade com quizzes antigos que já estavam em andamento antes da atualização.
+          - Mantém todos os recursos da v1.4.12.
+          EOF
+
+      - name: Validate v1.4.13
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1413-single-quiz.py
+          php -l pkg/api/automation_v130.php
+          php -l pkg/api/quiz_router_v131.php
+          php -l pkg/api/confirmation_router_v1311.php
+          php -l pkg/api/pending_router_v1311.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.13"
+          grep -Fq "quiz_mode'=>'single_v1413'" pkg/api/automation_v130.php
+          grep -Fq "etapa=5" pkg/api/automation_v130.php
+          grep -Fq "quiz_single_completed" pkg/api/quiz_router_v131.php
+          grep -Fq "text_raw" pkg/api/confirmation_router_v1311.php
+          grep -Fq "Comentário / Sugestão (opcional)" pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.13' pkg/sistema.html
+          grep -Fq 'single-quiz-cache-bust-v1.4.13' pkg/sw.js
+          php -r 'require "pkg/api/quiz_router_v131.php"; $a=v1413_parse_single_quiz_answer("5 - Gostei Muito"); if(!$a || $a[0]!==5 || $a[1]!=="Gostei Muito") exit(1); $b=v1413_parse_single_quiz_answer("51"); if($b!==null) exit(2);'
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.13.txt
+
+      - name: Publish v1.4.13
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.13 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.13 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.13.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.13' \
+            --notes-file pkg/ATUALIZACAO-v1.4.13.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.13
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.13.txt
+          retention-days: 30
