@@ -31,6 +31,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/patch-v1417-leader-response-whatsapp.py pkg
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('pkg/sistema.html')
+          s=p.read_text()
+          s=re.sub(r'/assets/index-C6Ng0a8i\.js(?:\?v=[^\"\']+)?','/assets/index-C6Ng0a8i.js?v=1.4.17',s, count=1)
+          p.write_text(s)
+          PY
           printf '1.4.17\n' > pkg/VERSION
           cat > pkg/ATUALIZACAO-v1.4.17.md <<'EOF'
           # Escala de Propósito v1.4.17
