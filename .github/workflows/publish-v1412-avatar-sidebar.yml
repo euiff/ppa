@@ -1,0 +1,92 @@
+name: Publish Escala de Proposito v1.4.12 Avatar Sidebar
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1412-avatar-sidebar.yml'
+      - 'scripts/patch-v1412-avatar-sidebar.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.11 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.11 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.11"
+
+      - name: Add user avatar and church logo fallback
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1412-avatar-sidebar.py pkg
+          printf '1.4.12\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.12.md <<'EOF'
+          # Escala de Propósito v1.4.12
+
+          - O topo do menu lateral agora mostra primeiro a foto de perfil do usuário logado.
+          - Se o usuário ainda não tiver foto, o sistema mostra automaticamente a logo da igreja à qual ele pertence.
+          - Se não houver foto nem logo da igreja, permanece o ícone padrão do sistema.
+          - A mesma prioridade é aplicada ao menu recolhido e ao menu lateral no celular.
+          - Ao trocar a própria foto em Meu Perfil, o avatar do menu é atualizado imediatamente sem precisar sair da conta.
+          - Na tela Voluntários, quem não tiver foto passa a usar a logo da igreja como imagem de fallback; sem logo, permanece a inicial do nome.
+          - Mantém todos os recursos da v1.4.11.
+          EOF
+
+      - name: Validate v1.4.12
+        run: |
+          set -euo pipefail
+          node --check pkg/assets/index-C6Ng0a8i.js
+          python3 -m py_compile scripts/patch-v1412-avatar-sidebar.py
+          test "$(cat pkg/VERSION)" = "1.4.12"
+          grep -Fq 'userAvatarUrl' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'escala-profile-updated' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'churchFallback' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'src:avatar||c' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'src:fe.avatar_url||churchFallback' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.12' pkg/sistema.html
+          grep -Fq 'avatar-sidebar-cache-bust-v1.4.12' pkg/sw.js
+          grep -Fq "updateViaCache:'none'" pkg/registerSW.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.12.txt
+
+      - name: Publish v1.4.12
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.12 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.12 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.12.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.12' \
+            --notes-file pkg/ATUALIZACAO-v1.4.12.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.12
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.12.txt
+          retention-days: 30
