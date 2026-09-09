@@ -1,0 +1,92 @@
+name: Publish Escala de Proposito v1.4.20 Master Cleanup Collation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1420-master-cleanup-collation.yml'
+      - 'scripts/patch-v1420-master-cleanup-collation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.19 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.19 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.19"
+
+      - name: Fix MASTER cleanup collation
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1420-master-cleanup-collation.py pkg
+          printf '1.4.20\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.20.md <<'EOF'
+          # Escala de Propósito v1.4.20
+
+          - Corrige o erro SQL 1267 `Illegal mix of collations` ao executar a limpeza de dados no MASTER.
+          - A falha ocorria em joins entre IDs vindos de tabelas com `utf8mb4_unicode_ci` e `utf8mb4_general_ci` após a migração do Supabase/MySQL.
+          - As comparações de UUID/ID da rotina de limpeza agora são binárias, portanto independem da collation textual das tabelas.
+          - Corrige tanto **Presença e check-in** quanto **Escalas antigas completas**.
+          - Mantém o filtro por igreja e período, a pré-visualização, a confirmação `EXCLUIR`, o backup automático e a auditoria.
+          - Não altera os dados até o MASTER confirmar a exclusão.
+          EOF
+
+      - name: Validate v1.4.20
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1420-master-cleanup-collation.py
+          php -l pkg/api/master-data-cleanup.php
+          test "$(cat pkg/VERSION)" = "1.4.20"
+          grep -Fq 'ON BINARY e.id=BINARY ei.escala_id' pkg/api/master-data-cleanup.php
+          grep -Fq 'ON BINARY e.id=BINARY c.escala_id' pkg/api/master-data-cleanup.php
+          grep -Fq 'ON BINARY e.id=BINARY w.escala_id' pkg/api/master-data-cleanup.php
+          grep -Fq 'ON BINARY sr.id=BINARY sc.request_id' pkg/api/master-data-cleanup.php
+          grep -Fq 'ON BINARY s.id=BINARY si.setlist_id' pkg/api/master-data-cleanup.php
+          grep -Fq 'ON BINARY e.igreja_id=BINARY i.id' pkg/api/master-data-cleanup.php
+          grep -Fq 'master-cleanup-collation-v1.4.20' pkg/sw.js
+          ! grep -Fq 'ON e.id=ei.escala_id' pkg/api/master-data-cleanup.php
+          ! grep -Fq 'ON e.id=c.escala_id' pkg/api/master-data-cleanup.php
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.20.txt
+
+      - name: Publish v1.4.20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.20 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.20 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.20.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.20' \
+            --notes-file pkg/ATUALIZACAO-v1.4.20.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.20
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.20.txt
+          retention-days: 30
