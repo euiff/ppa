@@ -1,0 +1,97 @@
+name: Publish Escala de Proposito v1.4.18 Master Data Cleanup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1418-master-cleanup.yml'
+      - 'scripts/patch-v1418-master-cleanup.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.17 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.17 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.17"
+
+      - name: Apply MASTER data cleanup
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1418-master-cleanup.py pkg
+          printf '1.4.18\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.18.md <<'EOF'
+          # Escala de Propósito v1.4.18
+
+          - Nova aba **Limpeza de dados** visível somente para a conta MASTER.
+          - Permite escolher a igreja/cliente e uma data limite para excluir dados antigos.
+          - Modo **Presença e check-in**: mantém as escalas, remove check-ins/check-outs e justificativas e limpa os estados de presença antigos.
+          - Modo **Escalas antigas completas**: remove as escalas até a data escolhida e os principais dados vinculados, incluindo itens, check-ins, quiz, avaliações, trocas, SOS, setlists e filas WhatsApp.
+          - Antes da exclusão é obrigatório usar a pré-visualização e digitar `EXCLUIR`.
+          - A API rejeita qualquer usuário que não tenha papel MASTER.
+          - Antes de qualquer exclusão é criado automaticamente um backup completo do banco em área privada do servidor.
+          - A operação é registrada no log de auditoria com igreja, data, escopo, quantidades e backup.
+          EOF
+
+      - name: Validate v1.4.18
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1418-master-cleanup.py
+          php -l pkg/api/master-data-cleanup.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.18"
+          test -f pkg/master-limpeza.html
+          grep -Fq 'Somente o MASTER pode acessar a limpeza de dados' pkg/api/master-data-cleanup.php
+          grep -Fq "confirmation']??''))!=='EXCLUIR'" pkg/api/master-data-cleanup.php
+          grep -Fq 'backup_db' pkg/api/master-data-cleanup.php
+          grep -Fq 'Limpeza de dados' pkg/master-limpeza.html
+          grep -Fq 'Pré-visualizar' pkg/master-limpeza.html
+          grep -Fq 'Escalas antigas completas' pkg/master-limpeza.html
+          grep -Fq 'path:"/limpeza-dados",label:"Limpeza de dados"' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'path:"/limpeza-dados",element:' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.18' pkg/sistema.html
+          grep -Fq 'master-data-cleanup-v1.4.18' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.18.txt
+
+      - name: Publish v1.4.18
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.18 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.18 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.18.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.18' \
+            --notes-file pkg/ATUALIZACAO-v1.4.18.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.18
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.18.txt
+          retention-days: 30
