@@ -1,0 +1,96 @@
+name: Publish Escala de Proposito v1.4.22 Master Volunteer Links
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1422-master-volunteer-links.yml'
+      - 'scripts/patch-v1422-master-volunteer-links.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.21 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.21 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.21"
+
+      - name: Add MASTER volunteer church links
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1422-master-volunteer-links.py pkg
+          printf '1.4.22\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.22.md <<'EOF'
+          # Escala de Propósito v1.4.22
+
+          - Nova aba **Vínculos voluntários** exclusiva do MASTER.
+          - Permite localizar voluntários por nome, WhatsApp ou e-mail e filtrar por igreja ou sem igreja.
+          - O MASTER pode vincular um voluntário sem igreja, mover um voluntário de uma igreja para outra ou desvinculá-lo.
+          - O histórico de escalas, presenças, respostas e avaliações antigas não é apagado nem transferido; permanece relacionado às escalas originais.
+          - Ao mover/desvincular, vínculos organizacionais atuais são limpos para evitar permissões cruzadas: departamentos, tags, localização atual, sessões pendentes de WhatsApp e liderança de departamento.
+          - Se o usuário era líder, a função de líder é removida e ele permanece como voluntário ao ser movido/desvinculado.
+          - Contas MASTER e administradores de igreja não podem ser movidos nessa tela. Administradores principais precisam transferir a titularidade antes.
+          - A pessoa recebe uma notificação no aplicativo sobre o novo vínculo e a alteração fica registrada na auditoria.
+          EOF
+
+      - name: Validate v1.4.22
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1422-master-volunteer-links.py
+          php -l pkg/api/master-volunteer-links.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.22"
+          test -f pkg/master-voluntarios.html
+          grep -Fq 'Somente o MASTER pode gerenciar vínculos de voluntários' pkg/api/master-volunteer-links.php
+          grep -Fq "['link','unlink']" pkg/api/master-volunteer-links.php
+          grep -Fq 'history_preserved' pkg/api/master-volunteer-links.php
+          grep -Fq 'Vínculos de voluntários' pkg/master-voluntarios.html
+          grep -Fq 'O histórico não é apagado' pkg/master-voluntarios.html
+          grep -Fq 'path:"/vinculos-voluntarios",label:"Vínculos voluntários"' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'path:"/vinculos-voluntarios",element:' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.22' pkg/sistema.html
+          grep -Fq 'v1422-master-volunteer-links' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.22.txt
+
+      - name: Publish v1.4.22
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.22 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.22 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.22.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.22' \
+            --notes-file pkg/ATUALIZACAO-v1.4.22.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.22
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.22.txt
+          retention-days: 30
