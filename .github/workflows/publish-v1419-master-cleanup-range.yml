@@ -1,0 +1,92 @@
+name: Publish Escala de Proposito v1.4.19 Master Cleanup Range
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1419-master-cleanup-range.yml'
+      - 'scripts/patch-v1419-master-cleanup-range.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.18 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.18 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.18"
+
+      - name: Fix cleanup range and preview
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1419-master-cleanup-range.py pkg
+          printf '1.4.19\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.19.md <<'EOF'
+          # Escala de Propósito v1.4.19
+
+          - Corrige a experiência da tela MASTER de limpeza de dados para não parecer que existem zero registros quando a data limite está fora do período real da igreja.
+          - Ao selecionar uma igreja, mostra quantas escalas existem e o período real dos dados.
+          - Mostra também o período de histórico já ocorrido.
+          - Remove o preenchimento automático confuso de "6 meses atrás".
+          - Ao escolher a igreja, a data limite passa automaticamente para a última data histórica disponível, quando existir.
+          - Se a data escolhida for anterior ao primeiro registro, o sistema informa claramente o período correto em vez de apenas mostrar zeros.
+          - Mantém todas as proteções da v1.4.18: exclusivo MASTER, pré-visualização, confirmação EXCLUIR e backup automático antes da exclusão.
+          EOF
+
+      - name: Validate v1.4.19
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1419-master-cleanup-range.py
+          php -l pkg/api/master-data-cleanup.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          test "$(cat pkg/VERSION)" = "1.4.19"
+          grep -Fq 'total_escalas' pkg/api/master-data-cleanup.php
+          grep -Fq 'past_min' pkg/api/master-data-cleanup.php
+          grep -Fq 'Histórico já ocorrido' pkg/master-limpeza.html
+          grep -Fq 'Nenhum registro existe até' pkg/master-limpeza.html
+          ! grep -Fq 'z.setMonth(z.getMonth()-6)' pkg/master-limpeza.html
+          grep -Fq '/assets/index-C6Ng0a8i.js?v=1.4.19' pkg/sistema.html
+          grep -Fq 'master-cleanup-range-v1.4.19' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.19.txt
+
+      - name: Publish v1.4.19
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.19 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.19 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.19.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.19' \
+            --notes-file pkg/ATUALIZACAO-v1.4.19.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.19
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.19.txt
+          retention-days: 30
