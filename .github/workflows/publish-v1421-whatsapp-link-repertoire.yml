@@ -1,0 +1,93 @@
+name: Publish Escala de Proposito v1.4.21 WhatsApp Link Repertoire
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1421-whatsapp-link-repertoire.yml'
+      - 'scripts/patch-v1421-whatsapp-link-repertoire.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.20 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.20 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.20"
+
+      - name: Restore confirmation link and repertoire in WhatsApp
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1421-whatsapp-link-repertoire.py pkg
+          printf '1.4.21\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.21.md <<'EOF'
+          # Escala de Propósito v1.4.21
+
+          - Restaura o link direto de confirmação/recusa na notificação inicial da escala enviada pelo WhatsApp.
+          - O link passa a usar o domínio atual `https://escala.isaacanthony.com.br/confirmar/...`, sem depender da configuração antiga do Vercel.
+          - Restaura o repertório do dia na mesma mensagem da escala quando houver músicas cadastradas.
+          - O repertório mostra número, música, artista e tom quando disponíveis.
+          - Se o repertório estiver salvo em outra escala/departamento do mesmo culto, o sistema procura o repertório da mesma igreja, data e culto e evita músicas duplicadas.
+          - Mantém as opções `1 - Confirmar presença` e `2 - Não posso participar` pelo próprio WhatsApp.
+          - Não altera webhook, roteador de respostas, quiz ou notificações de confirmação ao líder/pastor.
+          EOF
+
+      - name: Validate v1.4.21
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1421-whatsapp-link-repertoire.py
+          php -l pkg/api/whatsapp_scale_message_v1421.php
+          php -l pkg/api/automation_v130.php
+          test "$(cat pkg/VERSION)" = "1.4.21"
+          grep -Fq "whatsapp_scale_message_v1421.php" pkg/api/automation_v130.php
+          grep -Fq "v1421_process_scale_whatsapp_job" pkg/api/automation_v130.php
+          grep -Fq "Repertório do dia" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "https://escala.isaacanthony.com.br" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "setlist_itens" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "Confirmar presença" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "Não posso participar" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "whatsapp-scale-link-repertoire-v1.4.21" pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.21.txt
+
+      - name: Publish v1.4.21
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.21 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.21 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.21.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.21' \
+            --notes-file pkg/ATUALIZACAO-v1.4.21.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.21
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.21.txt
+          retention-days: 30
