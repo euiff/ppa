@@ -1,0 +1,101 @@
+name: Publish Escala de Proposito v1.4.26 Manual Replacement No SOS
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1426-manual-replacement-no-sos.yml'
+      - 'scripts/patch-v1426-manual-replacement-no-sos.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.25 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.25 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.25"
+
+      - name: Disable automatic SOS and keep manual replacement
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1426-manual-replacement-no-sos.py pkg
+          printf '1.4.26\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.26.md <<'EOF'
+          # Escala de Propósito v1.4.26
+
+          - Remove o fluxo automático de **SOS Escala** quando um voluntário informa que não poderá servir.
+          - O sistema não procura, escolhe nem oferece automaticamente a vaga para outro voluntário.
+          - Quando houver recusa, o pastor/líder responsável continua recebendo a notificação no WhatsApp e passa a receber uma orientação para escolher manualmente quem será escalado no lugar.
+          - O motivo da indisponibilidade também é enviado ao pastor/líder, sem abrir solicitação SOS.
+          - Remove o tratamento de respostas `SOS 1` / `SOS 2` do webhook.
+          - Desativa a criação manual de novos SOS pela API antiga e remove o card SOS das Configurações.
+          - Solicitações SOS antigas que ainda estiverem abertas são encerradas como canceladas; o histórico não é apagado.
+          - Mantém confirmação/recusa 1 e 2, repertório, link de confirmação, quiz de uma pergunta, notificações normais e aviso ao responsável pela escala.
+          EOF
+
+      - name: Validate v1.4.26
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1426-manual-replacement-no-sos.py
+          for f in \
+            pkg/api/confirmation_router_v1311.php \
+            pkg/api/pending_router_v1311.php \
+            pkg/api/webhook-entry-v1311.php \
+            pkg/api/sos.php \
+            pkg/api/automation_v130.php \
+            pkg/api/scale-health.php \
+            pkg/api/scale_response_notify_v1417.php; do php -l "$f" >/dev/null; done
+          node --check pkg/smart-features.js
+          test "$(cat pkg/VERSION)" = "1.4.26"
+          ! grep -Fq "sos_v140_create((string)\$item['item_id']" pkg/api/confirmation_router_v1311.php
+          ! grep -Fq "sos_v140_router_handle" pkg/api/webhook-entry-v1311.php
+          grep -Fq "escolha manualmente quem será escalado no lugar" pkg/api/scale_response_notify_v1417.php
+          grep -Fq "SOS automático foi desativado" pkg/api/sos.php
+          ! grep -Fq "sf-sos" pkg/smart-features.js
+          test -f pkg/database/migrations/20260909_1426_manual_replacement.sql
+          grep -Fq "status='cancelled'" pkg/database/migrations/20260909_1426_manual_replacement.sql
+          grep -Fq 'manual-replacement-no-sos-v1.4.26' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.26.txt
+
+      - name: Publish v1.4.26
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.26 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.26 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.26.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.26' \
+            --notes-file pkg/ATUALIZACAO-v1.4.26.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.26
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.26.txt
+          retention-days: 30
