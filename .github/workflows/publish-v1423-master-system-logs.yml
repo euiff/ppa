@@ -1,0 +1,101 @@
+name: Publish Escala de Proposito v1.4.23 Master System Logs
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1423-master-system-logs.yml'
+      - 'scripts/patch-v1423-master-system-logs.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.22 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.22 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.22"
+
+      - name: Add MASTER logs and error center
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1423-master-system-logs.py pkg
+          printf '1.4.23\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.23.md <<'EOF'
+          # Escala de Propósito v1.4.23
+
+          - Nova aba **Logs e erros** exclusiva do MASTER.
+          - Centraliza alterações registradas pela auditoria, erros do aplicativo, erros PHP/HTTP, falhas de notificações e falhas da fila do WhatsApp.
+          - Registra automaticamente as operações de escrita feitas pelo aplicativo (POST/PUT/PATCH/DELETE), com usuário, igreja, rota e status quando disponíveis.
+          - Captura erros JavaScript, promises rejeitadas, falhas de rede e respostas HTTP de erro.
+          - Captura warnings/fatais PHP e respostas HTTP 4xx/5xx dos endpoints instrumentados.
+          - Permite pesquisar por erro, ação, usuário ou igreja; filtrar por igreja, severidade, status e período.
+          - Exibe contadores de erros em aberto, alterações do dia, erros do dia e falhas do WhatsApp nas últimas 24h.
+          - Erros próprios da nova central podem ser marcados como **Resolvido** e reabertos, com observação da correção.
+          - Senhas, tokens, chaves de API, cookies, CPF e outros campos sensíveis são mascarados antes de entrar nos logs.
+          - Os logs antigos de auditoria continuam preservados e também aparecem na nova tela.
+          EOF
+
+      - name: Validate v1.4.23
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1423-master-system-logs.py
+          php -l pkg/api/system_observer_v1423.php
+          php -l pkg/api/system-client-event.php
+          php -l pkg/api/master-system-logs.php
+          node --check pkg/system-observer-v1423.js
+          node --check pkg/assets/index-C6Ng0a8i.js
+          for f in pkg/api/*.php; do php -l "$f" >/dev/null; done
+          test "$(cat pkg/VERSION)" = "1.4.23"
+          test -f pkg/master-logs.html
+          test -f pkg/database/migrations/202609090002_master_system_logs_v1423.sql
+          grep -Fq 'CREATE TABLE IF NOT EXISTS system_logs' pkg/database/migrations/202609090002_master_system_logs_v1423.sql
+          grep -Fq 'Somente o MASTER pode consultar os logs do sistema' pkg/api/master-system-logs.php
+          grep -Fq "'[PROTEGIDO]'" pkg/api/system_observer_v1423.php
+          grep -Fq 'system-observer-v1423.js?v=1.4.23' pkg/sistema.html
+          grep -Fq 'path:"/logs-sistema",label:"Logs e erros"' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'path:"/logs-sistema",element:' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'master-system-logs-v1.4.23' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.23.txt
+
+      - name: Publish v1.4.23
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.23 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.23 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.23.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.23' \
+            --notes-file pkg/ATUALIZACAO-v1.4.23.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.23
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.23.txt
+          retention-days: 30
