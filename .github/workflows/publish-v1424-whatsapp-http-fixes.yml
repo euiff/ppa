@@ -1,0 +1,126 @@
+name: Publish Escala de Proposito v1.4.24 WhatsApp HTTP Fixes
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1424-whatsapp-http-fixes.yml'
+      - 'scripts/patch-v1424-whatsapp-http-fixes.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.23 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.23 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.23"
+
+      - name: Fix WhatsApp transport and MASTER church-code noise
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1424-whatsapp-http-fixes.py pkg
+          printf '1.4.24\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.24.md <<'EOF'
+          # Escala de Propósito v1.4.24
+
+          - Corrige as falhas de envio do WhatsApp vistas nos logs com HTTP 400 e `instance requires property "text"`.
+          - As rotas ativas de escala, confirmação, quiz, pendências, SOS e aviso ao líder passam por um transporte único e validado.
+          - O envio usa primeiro o payload atual `{number, text}` e não troca mais para `textMessage` em qualquer HTTP 400, evitando mascarar a causa real do erro.
+          - Falhas transitórias de rede/5xx/429 recebem uma nova tentativa com o mesmo payload correto.
+          - Compatibilidade com formato antigo `textMessage` só é usada quando a própria API indicar explicitamente que esse formato é obrigatório.
+          - Mensagens vazias e números inválidos são barrados antes da chamada à Evolution e aparecem com diagnóstico claro nos logs.
+          - Recoloca automaticamente na fila as notificações de escala que falharam nas últimas 24 horas, sem duplicar mensagens que já foram enviadas com sucesso.
+          - Corrige o HTTP 400 de `/api/church-code.php` quando o usuário é MASTER sem igreja vinculada; esse é um estado normal do MASTER e deixa de ser registrado como erro.
+          - Mantém link de confirmação, repertório, webhook, respostas 1/2, quiz de uma pergunta e aviso ao pastor/líder.
+          EOF
+
+      - name: Validate v1.4.24
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1424-whatsapp-http-fixes.py
+          for f in \
+            pkg/api/whatsapp_transport_v1424.php \
+            pkg/api/automation_v130.php \
+            pkg/api/quiz_router_v131.php \
+            pkg/api/confirmation_router_v1311.php \
+            pkg/api/pending_router_v1311.php \
+            pkg/api/sos_lib_v140.php \
+            pkg/api/sos-router-v140.php \
+            pkg/api/scale_response_notify_v1417.php \
+            pkg/api/whatsapp_scale_message_v1421.php \
+            pkg/api/church-code.php; do php -l "$f" >/dev/null; done
+          node --check pkg/church-access.js
+          test "$(cat pkg/VERSION)" = "1.4.24"
+          grep -Fq "'number'=>\$number,'text'=>\$text" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "transport_version']='1.4.24" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "v1424_send_logged_whatsapp('whatsapp'" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "v1424_send_logged_whatsapp('whatsapp_post_quiz'" pkg/api/automation_v130.php
+          grep -Fq "master_without_church" pkg/api/church-code.php
+          test -f pkg/database/migrations/20260909_1424_whatsapp_transport_recovery.sql
+          grep -Fq "job_type='escala_notification'" pkg/database/migrations/20260909_1424_whatsapp_transport_recovery.sql
+          grep -Fq 'whatsapp-transport-http-fixes-v1.4.24' pkg/sw.js
+
+      - name: Test outgoing JSON shape
+        run: |
+          set -euo pipefail
+          cat > /tmp/evo_stub.py <<'PY'
+          import json
+          from http.server import BaseHTTPRequestHandler,HTTPServer
+          class H(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  n=int(self.headers.get('Content-Length','0')); body=json.loads(self.rfile.read(n) or b'{}')
+                  assert body.get('number')=='5564999999999',body
+                  assert body.get('text')=='Teste Escala',body
+                  assert 'textMessage' not in body,body
+                  self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(b'{"key":{"id":"ok"},"status":"PENDING"}')
+              def log_message(self,*a): pass
+          HTTPServer(('127.0.0.1',18765),H).handle_request()
+          PY
+          python3 /tmp/evo_stub.py & STUB=$!
+          sleep .2
+          php -r 'function config_value($k,$i=null,$d=""){return ["evolution_url"=>"http://127.0.0.1:18765","evolution_api_key"=>"fake","evolution_instance"=>"teste"][$k]??$d;} require "pkg/api/whatsapp_transport_v1424.php"; $r=v1424_evolution_send("(64) 99999-9999","Teste Escala",null); if(empty($r["ok"])) {fwrite(STDERR,json_encode($r)); exit(1);} '
+          wait "$STUB"
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.24.txt
+
+      - name: Publish v1.4.24
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.24 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.24 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.24.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.24' \
+            --notes-file pkg/ATUALIZACAO-v1.4.24.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.24
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.24.txt
+          retention-days: 30
