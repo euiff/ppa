@@ -1,0 +1,168 @@
+name: Publish Escala de Proposito v1.4.25 Recipient and Master Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1425-recipient-and-master-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.24 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.24 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.24"
+
+      - name: Patch MASTER church-admin and WhatsApp recipient handling
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg'); api=root/'api'
+
+          p=api/'church-admin.php'; s=p.read_text(encoding='utf-8')
+          old="""  $caller=require_auth();$ctx=user_context();$uid=(string)($caller['id']??$ctx['id']??'');$ig=(string)($ctx['igreja_id']??'');$role=(string)($ctx['role']??'');
+            if($ig==='')out(['data'=>null,'error'=>['message'=>'Igreja não identificada']],400);
+            $isMaster=$role==='master';$access=tenant_v1323_access($ig,null);$isOwner=$isMaster||tenant_v1323_is_billing_admin($ig,$uid);
+          """
+          new="""  $caller=require_auth();$ctx=user_context();$uid=(string)($caller['id']??$ctx['id']??'');$ig=(string)($ctx['igreja_id']??'');$role=(string)($ctx['role']??'');
+            $req=$_SERVER['REQUEST_METHOD']==='POST'?input_json():$_GET;
+            if($role==='master' && $ig===''){
+              $selected=trim((string)($req['igreja_id']??''));
+              if($selected==='')out(['data'=>['igreja_id'=>null,'igreja_nome'=>null,'admin_user_id'=>null,'members'=>[]],'error'=>null,'meta'=>['reason'=>'master_without_church']],200);
+              $ig=$selected;
+            }
+            if($ig==='')out(['data'=>null,'error'=>['message'=>'Igreja não identificada']],400);
+            $isMaster=$role==='master';$access=tenant_v1323_access($ig,null);$isOwner=$isMaster||tenant_v1323_is_billing_admin($ig,$uid);
+          """
+          if old not in s: raise SystemExit('church-admin anchor not found')
+          s=s.replace(old,new,1)
+          s=s.replace("  $req=$_SERVER['REQUEST_METHOD']==='POST'?input_json():$_GET;$action=(string)($req['action']??'list');","  $action=(string)($req['action']??'list');",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=api/'whatsapp_transport_v1424.php'; s=p.read_text(encoding='utf-8')
+          s=s.replace("    $raw=mb_strtolower(json_encode($first['body']??'',JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).' '.(string)($first['raw']??'').' '.(string)($first['error']??''));","    $raw0=json_encode($first['body']??'',JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).' '.(string)($first['raw']??'').' '.(string)($first['error']??'');\n    $raw=function_exists('mb_strtolower')?mb_strtolower($raw0,'UTF-8'):strtolower($raw0);",1)
+          anchor="""    if(in_array($status,[400,404,422],true)&&$asksNested){
+                  $nested=v1424_http_json($url,['number'=>$number,'textMessage'=>['text'=>$text]],$headers);$nested['instance']=$instance;$nested['number']=$number;$nested['payload_mode']='textMessage';$nested['first_attempt_status']=$status;
+                  return $nested;
+              }
+              return $first;
+          }
+          """
+          replacement="""    if(in_array($status,[400,404,422],true)&&$asksNested){
+                  $nested=v1424_http_json($url,['number'=>$number,'textMessage'=>['text'=>$text]],$headers);$nested['instance']=$instance;$nested['number']=$number;$nested['payload_mode']='textMessage';$nested['first_attempt_status']=$status;
+                  return $nested;
+              }
+              $body=$first['body']??null;$existsFalse=false;
+              $scan=function($v) use (&$scan,&$existsFalse){if($existsFalse)return;if(is_array($v)){foreach($v as$k=>$x){if((string)$k==='exists' && $x===false){$existsFalse=true;return;}$scan($x);}}};
+              $scan($body);
+              if($existsFalse){
+                  $first['error_code']='recipient_not_on_whatsapp';
+                  $first['error']='Número não encontrado/registrado no WhatsApp pela Evolution API: '.$number;
+                  $first['non_retryable']=true;
+              }
+              return $first;
+          }
+          """
+          if anchor not in s: raise SystemExit('transport anchor not found')
+          s=s.replace(anchor,replacement,1)
+          s=s.replace("$meta['transport_version']='1.4.24';","$meta['transport_version']='1.4.25';",1)
+          s=s.replace("if(isset($res['first_attempt_status']))$meta['first_attempt_status']=$res['first_attempt_status'];","if(isset($res['first_attempt_status']))$meta['first_attempt_status']=$res['first_attempt_status'];if(isset($res['error_code']))$meta['error_code']=$res['error_code'];if(isset($res['non_retryable']))$meta['non_retryable']=(bool)$res['non_retryable'];",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=api/'automation_v130.php'; s=p.read_text(encoding='utf-8')
+          old="function v130_retry_failed_jobs():int{$max=v130_cfg('whatsapp_job_max_attempts',null,3,1,10);$before=date('Y-m-d H:i:s',time()-v130_cfg('whatsapp_job_retry_seconds',null,300,60,86400));$q=db()->prepare(\"SELECT id FROM whatsapp_send_jobs WHERE status='failed' AND attempts<? AND updated_at<=? ORDER BY updated_at LIMIT 20\");$q->execute([$max,$before]);$r=$q->fetchAll();foreach($r as$x)db()->prepare(\"UPDATE whatsapp_send_jobs SET status='pending',scheduled_at=NOW(),started_at=NULL,finished_at=NULL,error=NULL,updated_at=NOW() WHERE id=?\")->execute([$x['id']]);return count($r);}"
+          new="function v130_retry_failed_jobs():int{$max=v130_cfg('whatsapp_job_max_attempts',null,3,1,10);$before=date('Y-m-d H:i:s',time()-v130_cfg('whatsapp_job_retry_seconds',null,300,60,86400));$q=db()->prepare(\"SELECT id FROM whatsapp_send_jobs WHERE status='failed' AND attempts<? AND updated_at<=? AND (result IS NULL OR result NOT LIKE '%\\\"non_retryable\\\":true%') ORDER BY updated_at LIMIT 20\");$q->execute([$max,$before]);$r=$q->fetchAll();foreach($r as$x)db()->prepare(\"UPDATE whatsapp_send_jobs SET status='pending',scheduled_at=NOW(),started_at=NULL,finished_at=NULL,error=NULL,updated_at=NOW() WHERE id=?\")->execute([$x['id']]);return count($r);}"
+          if old not in s: raise SystemExit('retry anchor not found')
+          s=s.replace(old,new,1)
+          start=s.index('function v130_enqueue_missing():array{')
+          end=s.index('function v134_ensure_confirmation_schema()',start)
+          fn=r'''function v130_enqueue_missing():array{$today=date('Y-m-d');$to=date('Y-m-d',strtotime('+180 days'));$q=db()->prepare("SELECT ei.id,ei.escala_id,e.igreja_id,e.data,c.horario,p.whatsapp FROM escala_itens ei JOIN escalas e ON e.id=ei.escala_id LEFT JOIN cultos c ON c.id=e.culto_id LEFT JOIN profiles p ON p.id=ei.voluntario_id WHERE e.status='publicado' AND e.data BETWEEN ? AND ? AND ei.notificado=0 AND ei.status_confirmacao='pendente' ORDER BY e.data,c.horario LIMIT 200");$q->execute([$today,$to]);$checked=0;$queued=0;$last=db()->query("SELECT MAX(scheduled_at) FROM whatsapp_send_jobs WHERE status IN ('pending','running')")->fetchColumn();$next=$last?max(time(),strtotime((string)$last)):time();foreach($q->fetchAll()as$r){$checked++;$evt=v130_event_ts($r['data'],$r['horario'],$r['igreja_id']);if($evt&&$evt<time()-900)continue;$j=db()->prepare("SELECT status,attempts,result FROM whatsapp_send_jobs WHERE escala_item_id=? ORDER BY created_at DESC LIMIT 1");$j->execute([$r['id']]);$job=$j->fetch();if($job&&in_array($job['status'],['pending','running'],true))continue;if($job&&$job['status']==='failed'){$jr=json_decode((string)($job['result']??''),true);if(is_array($jr)&&!empty($jr['non_retryable'])&&($jr['error_code']??'')==='recipient_not_on_whatsapp'){$oldNum=preg_replace('/\D+/','',(string)($jr['number']??''))?:'';$newNum=function_exists('v1424_phone')?v1424_phone((string)($r['whatsapp']??'')):(preg_replace('/\D+/','',(string)($r['whatsapp']??''))?:'');if($oldNum!==''&&$newNum===$oldNum)continue;}elseif((int)$job['attempts']<v130_cfg('whatsapp_job_max_attempts',$r['igreja_id'],3,1,10))continue;}$l=db()->prepare("SELECT id FROM notification_logs WHERE tipo='whatsapp' AND status='enviado' AND meta_data LIKE ? LIMIT 1");$l->execute(['%\"escala_item_id\":\"'.$r['id'].'\"%']);if($l->fetchColumn()){db()->prepare('UPDATE escala_itens SET notificado=1,updated_at=NOW() WHERE id=?')->execute([$r['id']]);continue;}ensure_item_token($r['id']);$gap=max(1,(int)ceil(v130_cfg('whatsapp_gap_ms',$r['igreja_id'],10000,1000,600000)/1000));db()->prepare("INSERT INTO whatsapp_send_jobs(id,attempts,created_at,escala_id,escala_item_id,force_resend,igreja_id,job_type,scheduled_at,status,updated_at) VALUES(?,0,NOW(),?,?,0,?,'escala_notification',?,'pending',NOW())")->execute([uuid4(),$r['escala_id'],$r['id'],$r['igreja_id'],date('Y-m-d H:i:s',$next)]);$queued++;$next+=$gap;}return['checked'=>$checked,'queued'=>$queued];}
+'''
+          s=s[:start]+fn+s[end:]
+          p.write_text(s,encoding='utf-8')
+
+          p=api/'master-system-logs.php'; s=p.read_text(encoding='utf-8')
+          old="$d['destinatario']=$r['destinatario']??null;$d['response_status']=$r['response_status']??null;if(!empty($r['response_body']))$d['response_body']=substr((string)$r['response_body'],0,1200);$ig=(string)($r['igreja_id']??'')?:mlog_church_from($d);$items[]=['id'=>'notify:'.$r['id'],'native_id'=>$r['id'],'kind'=>'error','severity'=>'error','status'=>'open','source'=>'WhatsApp/notificação','action'=>$r['tipo'],'title'=>'Falha de notificação','message'=>(string)($r['erro']?:('Status: '.$r['status']))"
+          new="$d['destinatario']=$r['destinatario']??null;$d['response_status']=$r['response_status']??null;if(!empty($r['response_body']))$d['response_body']=substr((string)$r['response_body'],0,1200);$ig=(string)($r['igreja_id']??'')?:mlog_church_from($d);$notFound=str_contains((string)($r['response_body']??''),'\\\"exists\\\":false')||(($d['error_code']??'')==='recipient_not_on_whatsapp');$msg=$notFound?'Número não encontrado no WhatsApp. Confira o WhatsApp cadastrado do voluntário: '.(string)($r['destinatario']??''):(string)($r['erro']?:('Status: '.$r['status']));$items[]=['id'=>'notify:'.$r['id'],'native_id'=>$r['id'],'kind'=>'error','severity'=>'error','status'=>'open','source'=>'WhatsApp/notificação','action'=>$r['tipo'],'title'=>$notFound?'WhatsApp do destinatário não encontrado':'Falha de notificação','message'=>$msg"
+          if old not in s: raise SystemExit('master-log anchor not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=root/'sistema.html'; s=p.read_text(encoding='utf-8'); s=re.sub(r'/assets/index-C6Ng0a8i\.js\?v=[^"<]+','/assets/index-C6Ng0a8i.js?v=1.4.25',s); p.write_text(s,encoding='utf-8')
+          p=root/'sw.js'; s=p.read_text(encoding='utf-8'); s+='\n/* master-church-admin-and-whatsapp-recipient-v1.4.25 */\n'; p.write_text(s,encoding='utf-8')
+          PY
+          printf '1.4.25\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.25.md <<'EOF'
+          # Escala de Propósito v1.4.25
+
+          - Corrige o HTTP 400 de `/api/church-admin.php` quando o usuário é MASTER sem igreja vinculada. MASTER sem igreja é um estado normal e passa a retornar 200.
+          - Identifica explicitamente a resposta `exists:false` da Evolution API como número não encontrado/registrado no WhatsApp.
+          - Não repete automaticamente envios para o mesmo número que a Evolution já informou como inexistente, evitando ciclos de erro no CRON.
+          - Se o WhatsApp do voluntário for corrigido no cadastro, o sistema detecta a mudança do número e volta a permitir o envio da notificação pendente.
+          - A central MASTER mostra uma mensagem legível pedindo conferência do número cadastrado, em vez de exibir apenas Bad Request.
+          - Mantém transporte `{number, text}`, repertório, link de confirmação, respostas 1/2, quiz de uma pergunta e aviso ao pastor/líder.
+          EOF
+
+      - name: Validate v1.4.25
+        run: |
+          set -euo pipefail
+          for f in pkg/api/church-admin.php pkg/api/whatsapp_transport_v1424.php pkg/api/automation_v130.php pkg/api/master-system-logs.php; do php -l "$f" >/dev/null; done
+          test "$(cat pkg/VERSION)" = "1.4.25"
+          grep -Fq "master_without_church" pkg/api/church-admin.php
+          grep -Fq "recipient_not_on_whatsapp" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "non_retryable" pkg/api/automation_v130.php
+          grep -Fq "WhatsApp do destinatário não encontrado" pkg/api/master-system-logs.php
+          grep -Fq "transport_version']='1.4.25" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq 'master-church-admin-and-whatsapp-recipient-v1.4.25' pkg/sw.js
+
+      - name: Test Evolution exists-false classification
+        run: |
+          set -euo pipefail
+          php -r 'function config_value($k,$i=null,$d=""){return ["evolution_url"=>"https://fake.invalid","evolution_api_key"=>"fake","evolution_instance"=>"teste"][$k]??$d;} function http_json($u,$m,$p,$h){if(($p["text"]??"")!=="Teste"||($p["number"]??"")!=="5564993012809")exit(2);return ["ok"=>false,"status"=>400,"body"=>["status"=>400,"error"=>"Bad Request","response"=>["message"=>[["jid"=>"556493012809@s.whatsapp.net","exists"=>false,"number"=>"5564993012809"]]]],"raw"=>"","error"=>null];} require "pkg/api/whatsapp_transport_v1424.php"; $r=v1424_evolution_send("(64) 99301-2809","Teste",null); if(($r["error_code"]??"")!=="recipient_not_on_whatsapp"||empty($r["non_retryable"])) {fwrite(STDERR,json_encode($r));exit(1);} '
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.25.txt
+
+      - name: Publish v1.4.25
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.25 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.25 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.25.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.25' \
+            --notes-file pkg/ATUALIZACAO-v1.4.25.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.25
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.25.txt
+          retention-days: 30
