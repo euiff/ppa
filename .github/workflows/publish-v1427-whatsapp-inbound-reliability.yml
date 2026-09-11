@@ -1,0 +1,256 @@
+name: Publish Escala de Proposito v1.4.27 WhatsApp Inbound Reliability
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1427-whatsapp-inbound-reliability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.26 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.26 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.26"
+
+      - name: Fix intermittent WhatsApp inbound replies
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg'); api=root/'api'
+
+          p=api/'confirmation_router_v1311.php'; s=p.read_text(encoding='utf-8')
+          anchor="""function v1311_identity_mask(string $raw): string {
+              $digits = v1311_digits($raw);
+              $suffix = $digits !== '' ? substr($digits,-4) : 'none';
+              if (str_contains($raw,'@g.us')) $type='group';
+              elseif (str_contains($raw,'@lid')) $type='lid';
+              elseif (str_contains($raw,'@s.whatsapp.net') || str_contains($raw,'@c.us') || ($digits!=='' && strlen($digits)>=10 && strlen($digits)<=14)) $type='phone';
+              else $type='other';
+              return $type.':'.$suffix;
+          }
+          """
+          if anchor not in s: raise SystemExit('identity mask anchor not found')
+          insert=anchor+r'''
+          function v1427_identity_schema(): void {
+              try { db()->exec("CREATE TABLE IF NOT EXISTS whatsapp_identity_aliases (
+                  alias_key VARCHAR(80) NOT NULL PRIMARY KEY,
+                  phone VARCHAR(20) NOT NULL,
+                  last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  KEY idx_whatsapp_identity_phone (phone),
+                  KEY idx_whatsapp_identity_seen (last_seen_at)
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (Throwable $e) {}
+          }
+          function v1427_plain_phone_from_identity(string $identity): string {
+              if(str_contains($identity,'@g.us')||str_contains($identity,'@lid')) return '';
+              $d=v1311_digits($identity);
+              return (strlen($d)>=10&&strlen($d)<=14)?$d:'';
+          }
+          function v1427_lid_key(string $identity): string {
+              if(!str_contains($identity,'@lid')) return '';
+              $d=v1311_digits($identity); return $d!==''?'lid:'.$d:'';
+          }
+          function v1427_expand_and_learn_identities(array $identities): array {
+              $identities=array_values(array_unique(array_filter(array_map('strval',$identities))));
+              $phone='';$lids=[];
+              foreach($identities as $id){$p=v1427_plain_phone_from_identity($id);if($phone===''&&$p!=='')$phone=$p;$k=v1427_lid_key($id);if($k!=='')$lids[]=$k;}
+              if($lids){
+                  v1427_identity_schema();
+                  if($phone!==''){
+                      foreach(array_unique($lids) as $k){try{db()->prepare("INSERT INTO whatsapp_identity_aliases(alias_key,phone,last_seen_at,created_at) VALUES(?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE phone=VALUES(phone),last_seen_at=NOW()")->execute([$k,$phone]);}catch(Throwable $e){}}
+                  }else{
+                      foreach(array_unique($lids) as $k){try{$q=db()->prepare("SELECT phone FROM whatsapp_identity_aliases WHERE alias_key=? AND last_seen_at>=DATE_SUB(NOW(),INTERVAL 180 DAY) LIMIT 1");$q->execute([$k]);$p=(string)($q->fetchColumn()?:'');if($p!==''&&strlen($p)>=10&&strlen($p)<=14){$identities[]=$p;break;}}catch(Throwable $e){}}
+                  }
+              }
+              return array_values(array_unique($identities));
+          }
+          function v1427_reply_phone(array $msg,array $profiles=[]): string {
+              foreach(($msg['identities']??[]) as $id){$p=v1427_plain_phone_from_identity((string)$id);if($p!=='')return$p;}
+              foreach($profiles as $p){$d=v1311_digits((string)($p['whatsapp']??''));if(strlen($d)>=10&&strlen($d)<=14)return$d;}
+              return '';
+          }
+          '''
+          s=s.replace(anchor,insert,1)
+          old="""    $identities = array_values(array_keys($identities));
+              usort($identities, static function(string $a, string $b): int {
+          """
+          new="""    $identities = v1427_expand_and_learn_identities(array_values(array_keys($identities)));
+              usort($identities, static function(string $a, string $b): int {
+          """
+          if old not in s: raise SystemExit('identity expansion anchor not found')
+          s=s.replace(old,new,1)
+          old="""        $res=v1424_send_logged_whatsapp('whatsapp_confirmation_reply', (string)$item['whatsapp'], $message, $item['igreja_id'] ?: null, [
+          """
+          new="""        $replyTo=trim((string)($item['_reply_to']??''));if($replyTo==='')$replyTo=(string)$item['whatsapp'];
+                  $res=v1424_send_logged_whatsapp('whatsapp_confirmation_reply', $replyTo, $message, $item['igreja_id'] ?: null, [
+          """
+          if old not in s: raise SystemExit('confirmation reply anchor not found')
+          s=s.replace(old,new,1)
+          old="""    // Dedupe somente após a escala exata estar resolvida.
+              if (v1311_dedupe($msg)) { out(['ok'=>true,'reason'=>'duplicate_confirmation_event_v1311','escala_item_id'=>$item['item_id']],200); return true; }
+          """
+          new="""    $replyTo=v1427_reply_phone($msg,$profiles);if($replyTo!=='')$item['_reply_to']=$replyTo;
+              // Dedupe somente após a escala exata estar resolvida.
+              if (v1311_dedupe($msg)) { out(['ok'=>true,'reason'=>'duplicate_confirmation_event_v1311','escala_item_id'=>$item['item_id']],200); return true; }
+          """
+          if old not in s: raise SystemExit('resolved reply target anchor not found')
+          s=s.replace(old,new,1); p.write_text(s,encoding='utf-8')
+
+          p=api/'pending_router_v1311.php'; s=p.read_text(encoding='utf-8')
+          old="function v1311p_sender(array $msg, array $profiles): string { foreach($profiles as $p){ $d=preg_replace('/\\D+/','',(string)($p['whatsapp']??''))?:''; if(strlen($d)>=10) return $d; } foreach(($msg['identities']??[]) as $identity){ if(str_contains((string)$identity,'@g.us')||str_contains((string)$identity,'@lid')) continue; $d=preg_replace('/\\D+/','',(string)$identity)?:''; if(strlen($d)>=10 && strlen($d)<=14) return $d; } return ''; }"
+          new="function v1311p_sender(array $msg, array $profiles): string { if(function_exists('v1427_reply_phone')){$d=v1427_reply_phone($msg,$profiles);if($d!=='')return$d;} foreach(($msg['identities']??[]) as $identity){ if(str_contains((string)$identity,'@g.us')||str_contains((string)$identity,'@lid')) continue; $d=preg_replace('/\\D+/','',(string)$identity)?:''; if(strlen($d)>=10 && strlen($d)<=14) return $d; } foreach($profiles as $p){ $d=preg_replace('/\\D+/','',(string)($p['whatsapp']??''))?:''; if(strlen($d)>=10) return $d; } return ''; }"
+          if old not in s: raise SystemExit('pending sender anchor not found')
+          s=s.replace(old,new,1)
+          s=s.replace("v1311_handle_confirmation($item,$text,$yes); if($yes)","$item['_reply_to']=$sender; v1311_handle_confirmation($item,$text,$yes); if($yes)",1)
+          s=s.replace("v1311_handle_confirmation($item,$text,$yes); if(!$yes)v1311p_save_session","$item['_reply_to']=$sender; v1311_handle_confirmation($item,$text,$yes); if(!$yes)v1311p_save_session",1)
+          s=s.replace("$handled=v131_handle_active_quiz($quiz,$text);","$quiz['_reply_to']=$sender; $handled=v131_handle_active_quiz($quiz,$text);",1)
+          s=s.replace("$handled=v131_handle_active_quiz($quiz,$text);if($handled)","$quiz['_reply_to']=$sender; $handled=v131_handle_active_quiz($quiz,$text);if($handled)",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=api/'quiz_router_v131.php'; s=p.read_text(encoding='utf-8')
+          old="""    v1424_send_logged_whatsapp('whatsapp_quiz_reply', (string)$quiz['whatsapp'], $message, $igreja ?: null, [
+          """
+          new="""    $replyTo=trim((string)($quiz['_reply_to']??''));if($replyTo==='')$replyTo=(string)$quiz['whatsapp'];
+              v1424_send_logged_whatsapp('whatsapp_quiz_reply', $replyTo, $message, $igreja ?: null, [
+          """
+          if old not in s: raise SystemExit('quiz reply anchor not found')
+          s=s.replace(old,new,1)
+          old="""    $msg = v131_parse_inbound($body);
+              if ($msg['from_me']) {
+          """
+          new="""    $msg = v131_parse_inbound($body);
+              $robust=null;$robustProfiles=[];$robustReply='';
+              if(function_exists('v1311_parse_inbound')){
+                  try{$robust=v1311_parse_inbound($body);if(function_exists('v1311_find_profiles'))$robustProfiles=v1311_find_profiles($robust['identities']??[]);if(function_exists('v1427_reply_phone'))$robustReply=v1427_reply_phone($robust,$robustProfiles);}catch(Throwable $e){}
+              }
+              if ($msg['from_me']) {
+          """
+          if old not in s: raise SystemExit('quiz robust parser anchor not found')
+          s=s.replace(old,new,1)
+          old="""    $quiz = v131_find_active_quiz((string)$msg['sender']);
+              if (!$quiz) return false;
+          """
+          new="""    $quiz = v131_find_active_quiz((string)$msg['sender']);
+              if(!$quiz&&$robustReply!=='')$quiz=v131_find_active_quiz($robustReply);
+              if (!$quiz) return false;
+              if($robustReply!=='')$quiz['_reply_to']=$robustReply;
+          """
+          if old not in s: raise SystemExit('quiz find anchor not found')
+          s=s.replace(old,new,1); p.write_text(s,encoding='utf-8')
+
+          p=api/'webhook-entry-v1311.php'; s=p.read_text(encoding='utf-8')
+          old="""    $stage='timezone';
+              if(is_file(__DIR__.'/timezone_v133.php'))require_once __DIR__.'/timezone_v133.php';
+
+              $stage='whatsapp_lib';
+          """
+          new="""    $stage='timezone';
+              if(is_file(__DIR__.'/timezone_v133.php'))require_once __DIR__.'/timezone_v133.php';
+              $stage='inbound_receipt';
+              try{
+                  db()->exec("CREATE TABLE IF NOT EXISTS whatsapp_inbound_receipts (id VARCHAR(36) NOT NULL PRIMARY KEY,message_id VARCHAR(160) NULL,text_preview VARCHAR(500) NULL,identity_preview VARCHAR(255) NULL,event_name VARCHAR(80) NULL,received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,KEY idx_inbound_received(received_at),KEY idx_inbound_message(message_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                  $mid='';foreach(v1311e_layers($body)as$ly){$v=v1311e_nested($ly,['key','id']);if(is_scalar($v)&&trim((string)$v)!==''){$mid=trim((string)$v);break;}}
+                  $ident=implode(',',array_slice(v1311e_identity_labels($body),0,6));
+                  $exists=false;if($mid!==''){$q=db()->prepare("SELECT id FROM whatsapp_inbound_receipts WHERE message_id=? AND received_at>=DATE_SUB(NOW(),INTERVAL 2 DAY) LIMIT 1");$q->execute([$mid]);$exists=(bool)$q->fetchColumn();}
+                  if(!$exists)db()->prepare("INSERT INTO whatsapp_inbound_receipts(id,message_id,text_preview,identity_preview,event_name,received_at) VALUES(?,?,?,?,?,NOW())")->execute([uuid4(),$mid?:null,function_exists('mb_substr')?mb_substr($text,0,500,'UTF-8'):substr($text,0,500),$ident?:null,$event?:null]);
+              }catch(Throwable $e){v1311e_trace('inbound_receipt_error',['message'=>substr($e->getMessage(),0,240)]);}
+
+              $stage='whatsapp_lib';
+          """
+          if old not in s: raise SystemExit('entry receipt anchor not found')
+          s=s.replace(old,new,1); p.write_text(s,encoding='utf-8')
+
+          mig=root/'database/migrations/20260911_1427_whatsapp_inbound_reliability.sql'
+          mig.write_text(r'''CREATE TABLE IF NOT EXISTS whatsapp_identity_aliases (
+           alias_key VARCHAR(80) NOT NULL PRIMARY KEY,
+           phone VARCHAR(20) NOT NULL,
+           last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           KEY idx_whatsapp_identity_phone (phone), KEY idx_whatsapp_identity_seen (last_seen_at)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          CREATE TABLE IF NOT EXISTS whatsapp_inbound_receipts (
+           id VARCHAR(36) NOT NULL PRIMARY KEY,
+           message_id VARCHAR(160) NULL,
+           text_preview VARCHAR(500) NULL,
+           identity_preview VARCHAR(255) NULL,
+           event_name VARCHAR(80) NULL,
+           received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           KEY idx_inbound_received(received_at), KEY idx_inbound_message(message_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          ''',encoding='utf-8')
+
+          p=root/'sistema.html'; s=p.read_text(encoding='utf-8'); s=re.sub(r'/assets/index-C6Ng0a8i\.js\?v=[^"<]+','/assets/index-C6Ng0a8i.js?v=1.4.27',s); p.write_text(s,encoding='utf-8')
+          p=root/'sw.js'; s=p.read_text(encoding='utf-8'); s+='\n/* whatsapp-inbound-reliability-v1.4.27 */\n'; p.write_text(s,encoding='utf-8')
+          PY
+          printf '1.4.27\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.27.md <<'EOF'
+          # Escala de Propósito v1.4.27
+
+          - Corrige respostas de escala e quiz que às vezes chegavam pelo WhatsApp mas não recebiam retorno do sistema.
+          - Quando a Evolution entrega um número/JID diferente da forma salva no cadastro (inclusive variação brasileira com ou sem o 9), a resposta passa a ser enviada de volta para a identidade exata que acabou de falar com o sistema.
+          - Aprende a associação entre identificadores `@lid` e telefone quando a Evolution fornece os dois, aumentando a confiabilidade de mensagens seguintes do mesmo voluntário.
+          - O quiz usa o mesmo parser robusto de identidade das confirmações de escala.
+          - Mantém confirmação/recusa, motivo, quiz de uma pergunta, repertório, link de confirmação e aviso ao pastor/líder.
+          - Passa a registrar um recibo técnico das mensagens recebidas, para que a central de diagnóstico consiga comprovar que uma resposta chegou ao webhook.
+          EOF
+
+      - name: Validate v1.4.27
+        run: |
+          set -euo pipefail
+          for f in pkg/api/confirmation_router_v1311.php pkg/api/pending_router_v1311.php pkg/api/quiz_router_v131.php pkg/api/webhook-entry-v1311.php; do php -l "$f" >/dev/null; done
+          test "$(cat pkg/VERSION)" = "1.4.27"
+          grep -Fq "function v1427_reply_phone" pkg/api/confirmation_router_v1311.php
+          grep -Fq "whatsapp_identity_aliases" pkg/api/confirmation_router_v1311.php
+          grep -Fq "_reply_to" pkg/api/pending_router_v1311.php
+          grep -Fq "_reply_to" pkg/api/quiz_router_v131.php
+          grep -Fq "whatsapp_inbound_receipts" pkg/api/webhook-entry-v1311.php
+          grep -Fq 'whatsapp-inbound-reliability-v1.4.27' pkg/sw.js
+          php -r 'require "pkg/api/confirmation_router_v1311.php"; require "pkg/api/pending_router_v1311.php"; $m=["identities"=>["556493012809@s.whatsapp.net"]]; $p=[["whatsapp"=>"5564993012809"]]; if(v1427_reply_phone($m,$p)!=="556493012809") exit(2); if(v1311p_sender($m,$p)!=="556493012809") exit(3);'
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.27.txt
+
+      - name: Publish v1.4.27
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.27 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.27 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.27.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.27' \
+            --notes-file pkg/ATUALIZACAO-v1.4.27.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.27
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.27.txt
+          retention-days: 30
