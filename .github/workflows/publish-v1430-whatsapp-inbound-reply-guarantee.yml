@@ -1,0 +1,104 @@
+name: Publish Escala de Proposito v1.4.30 WhatsApp Inbound Reply Guarantee
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1430-whatsapp-inbound-reply-guarantee.yml'
+      - 'scripts/patch-v1430-whatsapp-inbound-reply-guarantee.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.29 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.29 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.29"
+
+      - name: Fix inbound LID identity and guarantee interactive replies
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1430-whatsapp-inbound-reply-guarantee.py pkg
+          printf '1.4.30\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.30.md <<'EOF'
+          # Escala de Propósito v1.4.30
+
+          - Corrige voluntários que recebem a escala, respondem `1` ou `2`, mas não recebem retorno quando a Evolution entrega o contato apenas como `@lid`.
+          - Quando `remoteJid` chega como LID, o roteador também usa com segurança `body.sender`, `data.sender` e `senderPn` para recuperar o telefone real do voluntário.
+          - A associação LID -> telefone do perfil é aprendida e reutilizada nas próximas mensagens.
+          - Confirmação, recusa, quiz e menu de pendências passam a usar uma caixa de saída persistente: se a resposta não for entregue na hora, o CRON tenta novamente automaticamente.
+          - O webhook da Evolution é forçado a ser verificado novamente após a atualização.
+          - Mantém repertório, link de confirmação, quiz de uma pergunta e aviso ao pastor/líder.
+          EOF
+
+      - name: Validate v1.4.30
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1430-whatsapp-inbound-reply-guarantee.py
+          php -l pkg/api/confirmation_router_v1311.php >/dev/null
+          php -l pkg/api/whatsapp_transport_v1424.php >/dev/null
+          php -l pkg/api/automation_v130.php >/dev/null
+          test "$(cat pkg/VERSION)" = "1.4.30"
+          grep -Fq "body.sender" pkg/api/confirmation_router_v1311.php
+          grep -Fq "data.sender" pkg/api/confirmation_router_v1311.php
+          grep -Fq "whatsapp_reply_outbox" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "v1430_process_reply_outbox" pkg/api/automation_v130.php
+          grep -Fq "whatsapp_reply_outbox" pkg/database/migrations/20260914_1430_whatsapp_inbound_reply_guarantee.sql
+          grep -Fq "whatsapp-inbound-reply-guarantee-v1.4.30" pkg/sw.js
+          cat > /tmp/test-v1430.php <<'PHP'
+          <?php
+          require $argv[1].'/api/confirmation_router_v1311.php';
+          $body=['event'=>'messages.upsert','data'=>['key'=>['remoteJid'=>'11927141003400@lid','fromMe'=>false,'id'=>'ABC123'],'message'=>['conversation'=>'1']],'sender'=>'5564999999999@s.whatsapp.net'];
+          $m=v1311_parse_inbound($body);
+          if(!in_array('5564999999999@s.whatsapp.net',$m['identities'],true)){fwrite(STDERR,"body.sender rescue failed\n");exit(1);}
+          if(!in_array('11927141003400@lid',$m['identities'],true)){fwrite(STDERR,"lid identity lost\n");exit(1);}
+          $body2=['event'=>'messages.upsert','data'=>['key'=>['remoteJid'=>'5564991112222@s.whatsapp.net','fromMe'=>false,'id'=>'ABC124'],'message'=>['conversation'=>'1']],'sender'=>'5564999999999@s.whatsapp.net'];
+          $m2=v1311_parse_inbound($body2);
+          if(in_array('5564999999999@s.whatsapp.net',$m2['identities'],true)){fwrite(STDERR,"body.sender polluted normal PN payload\n");exit(1);}
+          echo "parser-v1430-ok\n";
+          PHP
+          php /tmp/test-v1430.php "$PWD/pkg"
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.30.txt
+
+      - name: Publish v1.4.30
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.30 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.30 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.30.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.30' \
+            --notes-file pkg/ATUALIZACAO-v1.4.30.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.30
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.30.txt
+          retention-days: 30
