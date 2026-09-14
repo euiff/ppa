@@ -1,0 +1,92 @@
+name: Publish Escala de Proposito v1.4.33 WhatsApp Connection Resilience
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1433-whatsapp-connection-resilience.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.32 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.32 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.32"
+
+      - name: Add Evolution connection resilience
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1433-whatsapp-connection-resilience.py pkg
+          printf '1.4.33\n' > pkg/VERSION
+          sed -i -E 's#(/assets/index-C6Ng0a8i\.js\?v=)[^"<]+#\11.4.33#g' pkg/sistema.html || true
+          printf '\n/* whatsapp-connection-resilience-v1.4.33 */\n' >> pkg/sw.js
+          cat > pkg/ATUALIZACAO-v1.4.33.md <<'EOF'
+          # Escala de Propósito v1.4.33
+
+          - Corrige falhas intermitentes da Evolution API com resposta HTTP 500 `Connection Closed`.
+          - Mantém o núcleo de confirmação/recusa da base estável v1.4.27/v1.4.32, sem alterar o roteamento das respostas 1 e 2.
+          - O transporte faz novas tentativas graduais quando a conexão da Evolution cai temporariamente.
+          - Jobs de notificação de escala com falha transitória deixam de morrer após apenas 3 tentativas e passam a aguardar a conexão voltar, com até 30 tentativas controladas pelo CRON.
+          - Respostas importantes ao voluntário (confirmação, quiz e menu de pendências) e avisos ao pastor/líder que falharem por queda temporária ficam recuperáveis e são reenviados automaticamente pelo CRON.
+          - Falhas permanentes, como número sem WhatsApp, continuam sem loop infinito.
+          - Mantém repertório, link de confirmação, quiz de uma pergunta e demais recursos existentes.
+          EOF
+
+      - name: Validate v1.4.33
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.33"
+          php -l pkg/api/whatsapp_transport_v1424.php >/dev/null
+          php -l pkg/api/automation_v130.php >/dev/null
+          php -l pkg/api/confirmation_router_v1311.php >/dev/null
+          php -l pkg/api/pending_router_v1311.php >/dev/null
+          php -l pkg/api/quiz_router_v131.php >/dev/null
+          grep -Fq 'evolution_connection_closed' pkg/api/whatsapp_transport_v1424.php
+          grep -Fq 'whatsapp_transient_max_attempts' pkg/api/automation_v130.php
+          grep -Fq 'v1433_retry_failed_interactive_notifications' pkg/api/automation_v130.php
+          grep -Fq 'interactive_replies_recovered' pkg/api/automation_v130.php
+          grep -Fq 'whatsapp-connection-resilience-v1.4.33' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.33.txt
+
+      - name: Publish v1.4.33
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.33 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.33 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.33.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.33' \
+            --notes-file pkg/ATUALIZACAO-v1.4.33.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.33
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.33.txt
+          retention-days: 30
