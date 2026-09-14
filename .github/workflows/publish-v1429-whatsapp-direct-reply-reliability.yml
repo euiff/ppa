@@ -1,0 +1,95 @@
+name: Publish Escala de Proposito v1.4.29 WhatsApp Direct Reply Reliability
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1429-whatsapp-direct-reply-reliability.yml'
+      - 'scripts/patch-v1429-whatsapp-direct-reply-reliability.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.28 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.28 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.28"
+
+      - name: Fix direct WhatsApp replies and phone fallback
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1429-whatsapp-direct-reply-reliability.py pkg
+          printf '1.4.29\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.29.md <<'EOF'
+          # Escala de Propósito v1.4.29
+
+          - Corrige respostas `1` e `2` de uma notificação nova de escala que podiam ser capturadas por uma sessão antiga do menu de pendências.
+          - Quando chega uma nova notificação de escala ou quiz, ela passa a ter prioridade sobre um menu de pendências antigo ainda aberto.
+          - O roteador identifica qual foi a última pergunta realmente enviada ao voluntário (escala ou quiz) antes de interpretar números curtos.
+          - A identidade usada para responder passa a ser a que corresponde ao WhatsApp cadastrado do voluntário, evitando responder para um JID/número incorreto do webhook.
+          - Se a resposta para a identidade recebida falhar, o sistema tenta novamente usando o WhatsApp cadastrado do voluntário.
+          - Quando a Evolution retornar que um número brasileiro não existe, o transporte tenta automaticamente a variante equivalente com/sem o nono dígito antes de desistir.
+          - Mantém repertório, link de confirmação, quiz de uma pergunta, motivo de recusa e aviso ao pastor/líder.
+          EOF
+
+      - name: Validate v1.4.29
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1429-whatsapp-direct-reply-reliability.py
+          php -l pkg/api/confirmation_router_v1311.php >/dev/null
+          php -l pkg/api/pending_router_v1311.php >/dev/null
+          php -l pkg/api/whatsapp_transport_v1424.php >/dev/null
+          test "$(cat pkg/VERSION)" = "1.4.29"
+          grep -Fq "v1429_latest_prompt_intent" pkg/api/confirmation_router_v1311.php
+          grep -Fq "yield_to_latest_quiz_prompt" pkg/api/confirmation_router_v1311.php
+          grep -Fq "session_superseded_by_new_prompt" pkg/api/pending_router_v1311.php
+          grep -Fq "yield_to_direct_scale_reply" pkg/api/pending_router_v1311.php
+          grep -Fq "reply_fallback" pkg/api/confirmation_router_v1311.php
+          grep -Fq "v1429_br_phone_variants" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "number_variant_retry" pkg/api/whatsapp_transport_v1424.php
+          php -r "require 'pkg/api/whatsapp_transport_v1424.php'; \$v=v1429_br_phone_variants('5564992829123'); if(!in_array('556492829123',\$v,true)) exit(1);"
+          grep -Fq 'whatsapp-direct-reply-reliability-v1.4.29' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.29.txt
+
+      - name: Publish v1.4.29
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.29 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.29 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.29.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.29' \
+            --notes-file pkg/ATUALIZACAO-v1.4.29.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.29
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.29.txt
+          retention-days: 30
