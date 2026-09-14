@@ -1,0 +1,95 @@
+name: Publish Escala de Proposito v1.4.31 WhatsApp LID Exact Reply
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1431-whatsapp-lid-exact-reply.yml'
+      - 'scripts/patch-v1431-whatsapp-lid-exact-reply.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.30 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.30 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.30"
+
+      - name: Fix exact LID confirmation replies
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1431-whatsapp-lid-exact-reply.py pkg
+          printf '1.4.31\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.31.md <<'EOF'
+          # Escala de Propósito v1.4.31
+
+          - Corrige confirmações `1` e `2` que chegavam pelo WhatsApp com `remoteJid` no formato `@lid` e podiam não localizar o voluntário/escala.
+          - Recupera automaticamente a relação LID -> telefone usando respostas anteriores da Evolution e resultados dos jobs de notificação já enviados.
+          - A escala passa a ser resolvida primeiro pelo contexto exato de confirmação criado quando a notificação foi enviada, reduzindo dependência de número/JID mutável.
+          - Quando a conversa chega como `@lid`, a resposta de confirmação é enviada de volta ao JID exato da conversa, sem converter o LID em número comum.
+          - O transporte aprende automaticamente novos vínculos LID -> telefone a partir das respostas de envio da Evolution.
+          - Se a escala não puder ser resolvida, o sistema ainda responde no próprio LID informando que recebeu a mensagem, em vez de ficar em silêncio.
+          - Mantém repertório, link de confirmação, quiz de uma pergunta, recusa com motivo e aviso ao pastor/líder.
+          EOF
+
+      - name: Validate v1.4.31
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1431-whatsapp-lid-exact-reply.py
+          php -l pkg/api/confirmation_router_v1311.php >/dev/null
+          php -l pkg/api/pending_router_v1311.php >/dev/null
+          php -l pkg/api/quiz_router_v131.php >/dev/null
+          php -l pkg/api/whatsapp_transport_v1424.php >/dev/null
+          test "$(cat pkg/VERSION)" = "1.4.31"
+          grep -Fq 'v1431_phone_from_historical_lid' pkg/api/confirmation_router_v1311.php
+          grep -Fq 'profile_context_v1431' pkg/api/confirmation_router_v1311.php
+          grep -Fq 'v1431_reply_recipient' pkg/api/confirmation_router_v1311.php
+          grep -Fq 'v1431_recipient' pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "transport_version']='1.4.31'" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq 'whatsapp-lid-exact-reply-v1.4.31' pkg/sw.js
+          grep -Fq 'ALTER TABLE whatsapp_reply_outbox MODIFY phone VARCHAR(80)' pkg/database/migrations/20260914_1431_whatsapp_lid_exact_reply.sql
+          php -r "require 'pkg/api/whatsapp_transport_v1424.php'; if(v1431_recipient('185031603552434@lid')!=='185031603552434@lid') exit(1);"
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.31.txt
+
+      - name: Publish v1.4.31
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.31 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.31 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.31.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.31' \
+            --notes-file pkg/ATUALIZACAO-v1.4.31.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.31
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.31.txt
+          retention-days: 30
