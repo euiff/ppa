@@ -1,0 +1,102 @@
+name: Publish Escala de Proposito v1.4.32 WhatsApp Stable Rollback
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1432-whatsapp-stable-rollback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download current v1.4.31 and stable v1.4.27
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.31 -p escala-de-proposito-cpanel.zip --dir current --clobber
+          gh release download v1.4.27 -p escala-de-proposito-cpanel.zip --dir stable --clobber
+          mkdir pkg stablepkg
+          unzip -q current/escala-de-proposito-cpanel.zip -d pkg
+          unzip -q stable/escala-de-proposito-cpanel.zip -d stablepkg
+          test "$(cat pkg/VERSION)" = "1.4.31"
+          test "$(cat stablepkg/VERSION)" = "1.4.27"
+
+      - name: Restore WhatsApp inbound stack exactly from v1.4.27
+        run: |
+          set -euo pipefail
+          for f in \
+            api/automation_v130.php \
+            api/confirmation_router_v1311.php \
+            api/pending_router_v1311.php \
+            api/quiz_router_v131.php \
+            api/whatsapp_transport_v1424.php
+          do
+            cp "stablepkg/$f" "pkg/$f"
+          done
+          printf '1.4.32\n' > pkg/VERSION
+          sed -i -E 's#(/assets/index-C6Ng0a8i\.js\?v=)[^"<]+#\11.4.32#g' pkg/sistema.html || true
+          printf '\n/* whatsapp-stable-rollback-v1.4.32 */\n' >> pkg/sw.js
+          cat > pkg/ATUALIZACAO-v1.4.32.md <<'EOF'
+          # Escala de Propósito v1.4.32
+
+          - Hotfix de emergência do WhatsApp.
+          - Restaura exatamente o núcleo de recebimento/resposta da v1.4.27, que estava estável antes das alterações de hoje.
+          - Restaura confirmação/recusa 1 e 2, quiz, menu de pendências, transporte de resposta e automação do WhatsApp da base estável.
+          - Mantém todas as demais telas, recursos e correções novas do sistema que não fazem parte do núcleo de respostas do WhatsApp.
+          - Remove do caminho ativo as mudanças experimentais de LID/outbox das versões 1.4.28 a 1.4.31 que poderiam impedir o retorno da confirmação.
+          EOF
+
+      - name: Validate exact stable WhatsApp core
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.32"
+          for f in \
+            api/automation_v130.php \
+            api/confirmation_router_v1311.php \
+            api/pending_router_v1311.php \
+            api/quiz_router_v131.php \
+            api/whatsapp_transport_v1424.php
+          do
+            cmp -s "pkg/$f" "stablepkg/$f"
+            php -l "pkg/$f" >/dev/null
+          done
+          grep -Fq 'whatsapp-stable-rollback-v1.4.32' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.32.txt
+
+      - name: Publish v1.4.32
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.32 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.32 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.32.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.32' \
+            --notes-file pkg/ATUALIZACAO-v1.4.32.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.32
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.32.txt
+          retention-days: 30
