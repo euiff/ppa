@@ -1,0 +1,89 @@
+name: Publish Escala de Proposito v1.4.28 Pending Session Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1428-pending-session-fix.yml'
+      - 'scripts/patch-v1428-pending-session-fix.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.27 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.27 -p escala-de-proposito-cpanel.zip --clobber
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          mkdir pkg
+          unzip -q escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.27"
+
+      - name: Fix pending menu session lifetime and matching
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-v1428-pending-session-fix.py pkg
+          printf '1.4.28\n' > pkg/VERSION
+          cat > pkg/ATUALIZACAO-v1.4.28.md <<'EOF'
+          # Escala de Propósito v1.4.28
+
+          - Corrige o caso em que o voluntário recebia uma lista de pendências, respondia horas depois com `1` ou `2`, e o sistema repetia a mesma lista em vez de abrir a pendência escolhida.
+          - A sessão do menu de pendências agora dura 7 dias, em vez de somente 60 minutos.
+          - Sessões recentes dos últimos 7 dias são reativadas automaticamente na atualização quando ainda existem pendências válidas.
+          - O sistema passa a localizar a sessão principalmente pelo perfil do voluntário já identificado pelo webhook, evitando perda de contexto quando o WhatsApp alterna entre telefone, JID ou `@lid`.
+          - Antes de processar a escolha, a pendência continua sendo revalidada para evitar registrar resposta em escala/quiz que já foi respondido.
+          - Mantém quiz de uma pergunta, confirmações de escala, motivo de recusa, repertório, link de confirmação e aviso ao pastor/líder.
+          EOF
+
+      - name: Validate v1.4.28
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1428-pending-session-fix.py
+          php -l pkg/api/pending_router_v1311.php >/dev/null
+          test "$(cat pkg/VERSION)" = "1.4.28"
+          grep -Fq "INTERVAL 7 DAY" pkg/api/pending_router_v1311.php
+          ! grep -Fq "INTERVAL 60 MINUTE" pkg/api/pending_router_v1311.php
+          grep -Fq "session_match_profile" pkg/api/pending_router_v1311.php
+          grep -Fq "whatsapp_pending_sessions" pkg/database/migrations/20260914_1428_pending_session_fix.sql
+          grep -Fq "DATE_ADD(updated_at,INTERVAL 7 DAY)" pkg/database/migrations/20260914_1428_pending_session_fix.sql
+          grep -Fq 'pending-session-fix-v1.4.28' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.28.txt
+
+      - name: Publish v1.4.28
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.28 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.28 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.28.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.28' \
+            --notes-file pkg/ATUALIZACAO-v1.4.28.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.28
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.28.txt
+          retention-days: 30
