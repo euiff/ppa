@@ -1,0 +1,80 @@
+name: Publish Escala de Proposito v1.4.39 Official Repertoire
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1439-official-repertoire.yml'
+      - 'scripts/patch-v1439-official-repertoire.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.38 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.38 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.38"
+
+      - name: Fix official repertoire source
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1439-official-repertoire.py
+
+      - name: Validate v1.4.39
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.39"
+          php -l pkg/api/whatsapp_scale_message_v1421.php >/dev/null
+          MAIN_JS="$(find pkg/assets -maxdepth 1 -name 'index-*.js' -type f | head -n1)"
+          test -n "$MAIN_JS"
+          node --check "$MAIN_JS"
+          grep -Fq 'function v1439_rep_key' pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq 'LOUVOR' pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq 'gR1439=async' "$MAIN_JS"
+          grep -Fq 'escala_id:u||e' "$MAIN_JS"
+          grep -Fq 'setlistId?[{id:H.setlistId}]' "$MAIN_JS"
+          grep -Fq 'Corrige a fonte oficial do repertório' pkg/ATUALIZACAO-v1.4.39.md
+          printf '\n/* official-repertoire-v1.4.39 */\n' >> pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.39.txt
+
+      - name: Publish v1.4.39
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.39 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.39 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.39.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.39' \
+            --notes-file pkg/ATUALIZACAO-v1.4.39.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.39
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.39.txt
+          retention-days: 30
