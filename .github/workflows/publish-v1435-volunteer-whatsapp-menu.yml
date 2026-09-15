@@ -1,0 +1,83 @@
+name: Publish Escala de Proposito v1.4.35 Volunteer WhatsApp Menu
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1435-volunteer-whatsapp-menu.yml'
+      - 'scripts/patch-v1435-volunteer-menu.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.34 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.34 -p escala-de-proposito-cpanel.zip --dir current --clobber
+          mkdir pkg
+          unzip -q current/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.34"
+
+      - name: Add new volunteer WhatsApp menu
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1435-volunteer-menu.py pkg
+
+      - name: Validate v1.4.35
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.35"
+          php -l pkg/api/volunteer_menu_v1435.php >/dev/null
+          php -l pkg/api/scale-day-pdf-v1435.php >/dev/null
+          php -l pkg/api/pending_router_v1311.php >/dev/null
+          grep -Fq "*1* - 📌 Pendências" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "*2* - 📅 Dias em que estou escalado" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "*3* - 📄 Selecionar uma escala completa e receber em PDF" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "*4* - 🚫 Adicionar dias em que estou indisponível" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "scale-day-pdf-v1435.php" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "indisponibilidades" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "Departamento" pkg/api/scale-day-pdf-v1435.php
+          grep -Fq "Repertório de músicas" pkg/api/scale-day-pdf-v1435.php
+          grep -Fq "volunteer_menu_v1435.php" pkg/api/pending_router_v1311.php
+          ! grep -Fq "require_once __DIR__.'/volunteer_menu_v1434.php'" pkg/api/pending_router_v1311.php
+          grep -Fq "volunteer-whatsapp-menu-v1.4.35" pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.35.txt
+
+      - name: Publish v1.4.35
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.35 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.35 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.35.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.35' \
+            --notes-file pkg/ATUALIZACAO-v1.4.35.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.35
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.35.txt
+          retention-days: 30
