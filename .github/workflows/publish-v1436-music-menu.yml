@@ -1,0 +1,80 @@
+name: Publish Escala de Proposito v1.4.36 Music Menu
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1436-music-menu.yml'
+      - 'scripts/patch-v1436-music-menu.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.35 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.35 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.35"
+
+      - name: Add music repertoire menu
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1436-music-menu.py
+
+      - name: Validate v1.4.36
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.36"
+          php -l pkg/api/volunteer_menu_v1435.php >/dev/null
+          php -l pkg/api/whatsapp_scale_message_v1421.php >/dev/null
+          grep -Fq "*5* - 🎵 Repertório de músicas" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "vmenu_music" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "link_youtube" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "m.link_youtube" pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq "mesma ordem definida no repertório" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "v1435_handle_menu_session" pkg/api/volunteer_menu_v1435.php
+          grep -Fq "require_once __DIR__.'/volunteer_menu_v1435.php'" pkg/api/pending_router_v1311.php
+          ! grep -Fq "volunteer_menu_v1436.php" pkg/api/pending_router_v1311.php
+          printf '\n/* whatsapp-music-menu-v1.4.36 */\n' >> pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.36.txt
+
+      - name: Publish v1.4.36
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.36 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.36 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.36.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.36' \
+            --notes-file pkg/ATUALIZACAO-v1.4.36.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.36
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.36.txt
+          retention-days: 30
