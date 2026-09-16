@@ -1,0 +1,81 @@
+name: Publish Escala de Proposito v1.4.41 Pastor + Leader by Department
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1441-pastor-leader-dept.yml'
+      - 'scripts/patch-v1441-pastor-leader-dept.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.40 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.40 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.40"
+
+      - name: Apply pastor and department leader rules
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1441-pastor-leader-dept.py
+
+      - name: Validate v1.4.41
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.41"
+          php -l pkg/api/scale_response_notify_v1417.php >/dev/null
+          MAIN_JS="$(find pkg/assets -maxdepth 1 -name 'index-*.js' -type f | head -n1)"
+          test -n "$MAIN_JS"
+          node --check "$MAIN_JS"
+          grep -Fq 'function v1441_recipients' pkg/api/scale_response_notify_v1417.php
+          grep -Fq "'recipient_kind'=>\$kind" pkg/api/scale_response_notify_v1417.php
+          grep -Fq 'Departamento que lidera' "$MAIN_JS"
+          grep -Fq 'Líder responsável deste departamento' "$MAIN_JS"
+          grep -Fq 'Participar de outro departamento não a torna líder dele.' "$MAIN_JS"
+          grep -Fq 'Cargo de líder ativado. Agora escolha qual departamento ele lidera.' "$MAIN_JS"
+          grep -Fq 'Confirmações e recusas de escala passam a ser enviadas para o pastor/admin' pkg/ATUALIZACAO-v1.4.41.md
+          printf '\n/* pastor-leader-department-v1.4.41 */\n' >> pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.41.txt
+
+      - name: Publish v1.4.41
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.41 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.41 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.41.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.41' \
+            --notes-file pkg/ATUALIZACAO-v1.4.41.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.41
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.41.txt
+          retention-days: 30
