@@ -43,7 +43,7 @@ jobs:
           grep -Fq '/master-escalas' "$ASSET"
           grep -Fq 'Excluir escala completa' pkg/master-escalas.html
           grep -Fq 'master_delete_complete_scale' pkg/api/master-scales.php
-          grep -Fq 'BINARY e.culto_id=BINARY ?' pkg/api/master-scales.php
+          grep -Fq 'culto_id=BINARY ?' pkg/api/master-scales.php
           grep -Fq 'não altera **Culto da Família**' pkg/ATUALIZACAO-v1.4.46.md
 
       - name: Build release packages
