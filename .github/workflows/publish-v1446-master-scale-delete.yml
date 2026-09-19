@@ -1,0 +1,79 @@
+name: Publish Escala de Proposito v1.4.46 Master Scale Delete
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1446-master-scale-delete.yml'
+      - 'scripts/patch-v1446-master-scale-delete.py'
+      - 'patches/v1446/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.45 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.45 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.45"
+
+      - name: Add isolated complete-scale deletion to Master
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1446-master-scale-delete.py
+
+      - name: Validate v1.4.46
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.46"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          node --check "$ASSET"
+          php -l pkg/api/master-scales.php
+          grep -Fq '/master-escalas' "$ASSET"
+          grep -Fq 'Excluir escala completa' pkg/master-escalas.html
+          grep -Fq 'master_delete_complete_scale' pkg/api/master-scales.php
+          grep -Fq 'BINARY e.culto_id=BINARY ?' pkg/api/master-scales.php
+          grep -Fq 'não altera **Culto da Família**' pkg/ATUALIZACAO-v1.4.46.md
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.46.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.46.txt
+
+      - name: Publish v1.4.46
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.46 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.46 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.46.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.46' \
+            --notes-file pkg/ATUALIZACAO-v1.4.46.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.46
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.46.txt
+          retention-days: 30
