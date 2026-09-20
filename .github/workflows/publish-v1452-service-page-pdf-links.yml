@@ -1,0 +1,87 @@
+name: Publish Escala de Proposito v1.4.52 Service Page PDF Links
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1452-service-page-pdf-links.yml'
+      - 'scripts/patch-v1452-service-page-pdf-links.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.51 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.51 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.51"
+
+      - name: Apply v1.4.52 fix
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1452-service-page-pdf-links.py
+
+      - name: Validate v1.4.52
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.52"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          node --check "$ASSET"
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('pkg/gestao-ministerial.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          Path('/tmp/gestao-v1452.js').write_text('\n'.join(scripts),encoding='utf-8')
+          PY
+          node --check /tmp/gestao-v1452.js
+          grep -Fq '?auto_pdf=1' pkg/gestao-ministerial.html
+          grep -Fq '?auto_print=1' pkg/gestao-ministerial.html
+          grep -Fq 'target="_top"' pkg/gestao-ministerial.html
+          grep -Fq 'Fe.get("auto_pdf")' "$ASSET"
+          grep -Fq 'ke==="1"?he():G()' "$ASSET"
+          grep -Fq 'children:"Página do culto"' "$ASSET"
+          grep -Fq 'Ue.output("blob")' "$ASSET"
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.52.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.52.txt
+
+      - name: Publish v1.4.52
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.52 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.52 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.52.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.52' \
+            --notes-file pkg/ATUALIZACAO-v1.4.52.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.52
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.52.txt
+          retention-days: 30
