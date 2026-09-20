@@ -1,0 +1,95 @@
+name: Publish Escala de Proposito v1.4.53 Direct Service PDF
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1453-service-direct-pdf.yml'
+      - 'scripts/patch-v1453-service-direct-pdf.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.52 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.52 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.52"
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print0 | sort -z | xargs -0 sha256sum > /tmp/main-before.sha
+
+      - name: Apply direct PDF fix
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1453-service-direct-pdf.py
+
+      - name: Validate v1.4.53
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.53"
+          php -l pkg/api/ministerial-hub.php
+          node --check pkg/assets/jspdf.standalone-v1453.js
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('pkg/gestao-ministerial.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          if not scripts:
+              raise SystemExit('script not found')
+          Path('/tmp/gestao-v1453.js').write_text('\n'.join(scripts),encoding='utf-8')
+          PY
+          node --check /tmp/gestao-v1453.js
+          grep -Fq 'pdfClassicHere(window.__serviceData,this)' pkg/gestao-ministerial.html
+          grep -Fq 'printClassicHere(window.__serviceData)' pkg/gestao-ministerial.html
+          grep -Fq "import('/assets/jspdf.standalone-v1453.js')" pkg/gestao-ministerial.html
+          grep -Fq 'PDF baixado. Você continua na Página do Culto.' pkg/gestao-ministerial.html
+          grep -Fq 'Departamento' pkg/gestao-ministerial.html
+          grep -Fq 'Função' pkg/gestao-ministerial.html
+          grep -Fq 'Voluntário' pkg/gestao-ministerial.html
+          grep -Fq 'Situação' pkg/gestao-ministerial.html
+          ! grep -Fq '?auto_pdf=1' pkg/gestao-ministerial.html
+          ! grep -Fq '?auto_print=1' pkg/gestao-ministerial.html
+          grep -Fq "'ensaio_data'=>\$scales[0]['ensaio_data']" pkg/api/ministerial-hub.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print0 | sort -z | xargs -0 sha256sum > /tmp/main-after.sha
+          diff -u /tmp/main-before.sha /tmp/main-after.sha
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.53.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.53.txt
+
+      - name: Publish v1.4.53
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.53 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.53 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.53.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.53' \
+            --notes-file pkg/ATUALIZACAO-v1.4.53.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.53
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.53.txt
+          retention-days: 30
