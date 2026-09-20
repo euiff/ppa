@@ -58,10 +58,10 @@ jobs:
           grep -Fq '/esta-semana' "$ASSET"
           grep -Fq '/pendencias' "$ASSET"
           grep -Fq '/equilibrio-equipe' "$ASSET"
-          grep -Fq 'action==="week"' pkg/api/ministerial-hub.php
-          grep -Fq 'action==="pending"' pkg/api/ministerial-hub.php
-          grep -Fq 'action==="balance"' pkg/api/ministerial-hub.php
-          grep -Fq 'action==="service"' pkg/api/ministerial-hub.php
+          grep -Fq "if(\$action==='week')" pkg/api/ministerial-hub.php
+          grep -Fq "elseif(\$action==='pending')" pkg/api/ministerial-hub.php
+          grep -Fq "elseif(\$action==='balance')" pkg/api/ministerial-hub.php
+          grep -Fq "elseif(\$action==='service')" pkg/api/ministerial-hub.php
           grep -Fq 'Vagas ainda não preenchidas' pkg/gestao-ministerial.html
           grep -Fq 'Visão Geral' pkg/gestao-ministerial.html
           grep -Fq 'v1.4.48' pkg/ATUALIZACAO-v1.4.48.md
