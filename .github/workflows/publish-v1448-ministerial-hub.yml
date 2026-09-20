@@ -1,0 +1,96 @@
+name: Publish Escala de Proposito v1.4.48 Ministerial Hub
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1448-ministerial-hub.yml'
+      - 'scripts/patch-v1448-ministerial-hub.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.47 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.47 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.47"
+
+      - name: Add ministerial management hub
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1448-ministerial-hub.py
+
+      - name: Validate v1.4.48
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.48"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          node --check "$ASSET"
+          php -l pkg/api/ministerial-hub.php
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('pkg/gestao-ministerial.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          if not scripts:
+              raise SystemExit('script not found')
+          Path('/tmp/gestao-ministerial.js').write_text('\n'.join(scripts),encoding='utf-8')
+          PY
+          node --check /tmp/gestao-ministerial.js
+          grep -Fq 'Central de pendências' "$ASSET"
+          grep -Fq 'Equilíbrio da equipe' "$ASSET"
+          grep -Fq 'Página do culto' "$ASSET"
+          grep -Fq '/esta-semana' "$ASSET"
+          grep -Fq '/pendencias' "$ASSET"
+          grep -Fq '/equilibrio-equipe' "$ASSET"
+          grep -Fq 'action==="week"' pkg/api/ministerial-hub.php
+          grep -Fq 'action==="pending"' pkg/api/ministerial-hub.php
+          grep -Fq 'action==="balance"' pkg/api/ministerial-hub.php
+          grep -Fq 'action==="service"' pkg/api/ministerial-hub.php
+          grep -Fq 'Vagas ainda não preenchidas' pkg/gestao-ministerial.html
+          grep -Fq 'Visão Geral' pkg/gestao-ministerial.html
+          grep -Fq 'v1.4.48' pkg/ATUALIZACAO-v1.4.48.md
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.48.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.48.txt
+
+      - name: Publish v1.4.48
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.48 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.48 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.48.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.48' \
+            --notes-file pkg/ATUALIZACAO-v1.4.48.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.48
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.48.txt
+          retention-days: 30
