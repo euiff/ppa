@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/publish-v1448-ministerial-hub.yml'
       - 'scripts/patch-v1448-ministerial-hub.py'
+      - 'scripts/v1448-parts/**'
   workflow_dispatch:
 
 permissions:
@@ -26,10 +27,12 @@ jobs:
           unzip -q base/escala-de-proposito-cpanel.zip -d pkg
           test "$(cat pkg/VERSION)" = "1.4.47"
 
-      - name: Add ministerial management hub
+      - name: Rebuild verified v1.4.48 patch
         run: |
           set -euo pipefail
-          python scripts/patch-v1448-ministerial-hub.py
+          cat scripts/v1448-parts/*.part > /tmp/patch-v1448-ministerial-hub.py
+          echo "214ff078e8b7dd383149bfbc9c2967cc6e1795b651f804acec8ffa1ad05ca76c  /tmp/patch-v1448-ministerial-hub.py" | sha256sum -c -
+          python /tmp/patch-v1448-ministerial-hub.py
 
       - name: Validate v1.4.48
         run: |
