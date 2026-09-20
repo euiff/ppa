@@ -1,0 +1,29 @@
+from pathlib import Path
+import gzip,base64
+
+root=Path('pkg')
+asset=next((root/'assets').glob('index-*.js'))
+s=asset.read_text(encoding='utf-8')
+
+def rep(old,new,label):
+    global s
+    c=s.count(old)
+    if c!=1:
+        raise SystemExit(f'{label} anchor count={c}')
+    s=s.replace(old,new,1)
+
+# 1) Menu: cria papel de gestão e novas áreas integradas
+old='N=n==="master",C=n==="admin",A=C||n==="lider"||N,E=C||N,T=N?'
+new='N=n==="master",C=n==="admin",M=C||n==="lider"||n==="secretaria",A=C||n==="lider"||N,E=C||N,T=N?'
+rep(old,new,'management role flag')
+
+old='[{label:"Principal",items:[{path:"/",label:"Dashboard",icon:Ef},{path:"/escalas",label:"Escalas",icon:Xs},...E?[{path:"/templates",label:"Templates",icon:M0}]:[]]},{label:"Pessoas"'
+new='[{label:"Principal",items:[{path:"/",label:"Dashboard",icon:Ef},{path:"/escalas",label:"Escalas",icon:Xs},...E?[{path:"/templates",label:"Templates",icon:M0}]:[]]},{label:"Gestão",items:M?[{path:"/esta-semana",label:"Esta semana",icon:fo},{path:"/pendencias",label:"Central de pendências",icon:Wh},{path:"/equilibrio-equipe",label:"Equilíbrio da equipe",icon:N4}]:[]},{label:"Pessoas"'
+rep(old,new,'management menu')
+
+old='D=N?[{path:"/",label:"Home",icon:Ef},{path:"/igrejas",label:"Igrejas",icon:ys},{path:"/configuracoes",label:"Config",icon:bu},{path:"/atualizacoes",label:"Atualizar",icon:Bh}]:[{path:"/",label:"Home",icon:Ef},{path:"/escalas",label:"Escalas",icon:Xs},{path:"/louvor",label:"Louvor",icon:_o},{path:"/notificacoes",label:"Avisos",icon:kl}],F='
+new='D=N?[{path:"/",label:"Home",icon:Ef},{path:"/igrejas",label:"Igrejas",icon:ys},{path:"/configuracoes",label:"Config",icon:bu},{path:"/atualizacoes",label:"Atualizar",icon:Bh}]:M?[{path:"/esta-semana",label:"Semana",icon:Ef},{path:"/escalas",label:"Escalas",icon:Xs},{path:"/pendencias",label:"Pendências",icon:Wh},{path:"/louvor",label:"Louvor",icon:_o}]:[{path:"/",label:"Home",icon:Ef},{path:"/escalas",label:"Escalas",icon:Xs},{path:"/louvor",label:"Louvor",icon:_o},{path:"/notificacoes",label:"Avisos",icon:kl}],F='
+rep(old,new,'mobile management nav')
+
+# 2) Página de escalas: botão para a Página do Culto dentro do grupo completo
+old='r.jsxs("div",{className:"border-t border-border bg-secondary/10 p-3 sm:p-4 sp

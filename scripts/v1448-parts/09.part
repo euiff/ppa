@@ -1,0 +1,19 @@
+xa, Equilibrado e Carga alta**.
+- Exibe a média de participações da equipe para ajudar a distribuir as escalas com mais equilíbrio.
+
+## Central de Pendências
+- Reúne em um lugar só: **confirmações pendentes, recusas, vagas ainda não preenchidas, pedidos de troca e escalas em rascunho**.
+- Cada pendência possui acesso direto à Página do Culto correspondente.
+- As vagas abertas são calculadas comparando as funções previstas no template com as pessoas já escaladas.
+
+## Painel Esta semana
+- Mostra os próximos 7 dias com: **cultos, pessoas escaladas, confirmados, pendentes, recusas e trocas**.
+- Lista os próximos cultos em cartões e abre diretamente a Página do Culto.
+
+## Permissões
+- As novas áreas de gestão ficam disponíveis para **Pastor/Admin, Líder e Secretária**.
+- A Secretária permanece com acesso de consulta e impressão; esta atualização não concede poderes de edição de escala.
+- O voluntário comum continua com sua experiência atual.
+
+A versão mantém todas as funções existentes de WhatsApp, geração de escala, PDFs, repertório, trocas, confirmações e ordenação numérica/alfabética das versões anteriores.
+''',encoding='utf-8')

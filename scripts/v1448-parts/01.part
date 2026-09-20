@@ -1,0 +1,12 @@
+ace-y-3",children:[r.jsxs("div",{className:"flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1"'
+new='r.jsxs("div",{className:"border-t border-border bg-secondary/10 p-3 sm:p-4 space-y-3",children:[r.jsx("div",{className:"flex justify-end",children:r.jsx("a",{href:`/culto?data=${encodeURIComponent(ve.data||"")}&culto_id=${encodeURIComponent((ve.culto&&ve.culto.id)||"")}`,className:"inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground px-3 py-2 text-xs font-bold hover:opacity-90",onClick:ce=>ce.stopPropagation(),children:"Página do culto"})}),r.jsxs("div",{className:"flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1"'
+rep(old,new,'service page button')
+
+# 3) Componentes iframe e guarda de permissão
+old='mSE=()=>r.jsx("iframe",{src:"/master-escalas.html",title:"Excluir escalas",className:"w-full h-full min-h-[calc(100dvh-80px)] border-0 bg-background"}),aQ='
+new='mSE=()=>r.jsx("iframe",{src:"/master-escalas.html",title:"Excluir escalas",className:"w-full h-full min-h-[calc(100dvh-80px)] border-0 bg-background"}),mMG=({children:e})=>r.jsx(E_,{allowedRoles:["admin","lider","secretaria"],children:e}),mWK=()=>r.jsx("iframe",{src:"/gestao-ministerial.html?view=week",title:"Esta semana",className:"w-full h-full min-h-[calc(100dvh-80px)] border-0 bg-background"}),mPD=()=>r.jsx("iframe",{src:"/gestao-ministerial.html?view=pending",title:"Central de pendências",className:"w-full h-full min-h-[calc(100dvh-80px)] border-0 bg-background"}),mBL=()=>r.jsx("iframe",{src:"/gestao-ministerial.html?view=balance",title:"Equilíbrio da equipe",className:"w-full h-full min-h-[calc(100dvh-80px)] border-0 bg-background"}),mCT=()=>r.jsx("iframe",{src:`/gestao-ministerial.html?view=service&${new URLSearchParams(window.location.search).toString()}`,title:"Página do culto",className:"w-full h-full min-h-[calc(100dvh-80px)] border-0 bg-background"}),aQ='
+rep(old,new,'hub iframe components')
+
+# 4) Rotas
+old='r.jsx(nn,{path:"/escalas",element:r.jsx(Gn,{children:r.jsx(uG,{})})}),r.jsx(nn,{path:"/escala/:id"'
+new='r.jsx(nn,{path:"/esta-semana",element:r.jsx(mMG,{children:r.jsx(mWK,{})})}),r.jsx(nn,{path:"/pendencias",element:r.jsx(mMG,{children:r.jsx(mPD,{})})}),r.jsx(nn,

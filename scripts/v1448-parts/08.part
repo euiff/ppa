@@ -1,0 +1,16 @@
+w9FllITsUtxWdVwPg8nW6MkcB4sya9d6SeILWMPzT39ePwO9K81fCYi9Cgw0n52vufH/HyfnIb9/nevY4tnNn/Mo4KuS+zZvlpGxIQ+w9dev7SmEFTFGUeISwy948Y33Wt6btdUdAV6Hd8mzgoEk2rgiLNx8hyV8aSbo7bWDEmxRqIMMeaKBdSWvPfuJeMYzMnw1i/CaXhTgq8/gGaeCwps3HHKd11HoJW+8yEXsrcoXbBSRENCsY9w/Q6Vqwyu0DVG4apI8/sJ29Q0uIUEm7ohradog8YiIjNucjC1jfryrbSkTUIvKZr2GKzGd1ugFBSBhxuUWvMGwfsNJ3v6piezt95G03OpLSFJHw9uuI1UkuukOUuNNo/y2m0ZNV4nyzVeJyvWXWe/qRqup87WsyTZXRz6tEk7cG9HnjwFEFSDClmGbeF0M3DCujkg/1XBxXMN0rQmMGKguMa0PGKFUxvVRPkjotBrzrfNLIQamnKkiV7orqW8mVRneDzVruBRED7qr5usIQP5FzO68DIERci4vX6/wBgQEKWciVfuKzfUdCKhtvACxNuqVH0fJ+dfXYEoWY3pmnxILzNUU/z7R12OINs/VDVU1stkcgs3W6O/Y4hU84+1Uuz7lttm5uQBo82oMCB8KFvg/XO1rrvQtEmAibpMk1QPf26RJYPOPkiSB6qUQXZLUFCJe/ODrNut3a+yvuJd883s0PD/0Ss2GeE5dqak0Ml/ruycYp4lCU6a8KSK+kg6zunXNo/3GLLBq+cNCsrR2KyaOprA264eJmDbPt0uG+qqoVbnwuf6pYzXj0BMZh1m35pp2dIxWdXHFLe66+OEnppbuYrrWvEdPMfAu17oiEtDt8ctHD58+tB598ez508evHkq5NkPYIlvgHI36gH+kCsD18fPHL17d/PrFky8+DFwlgPrWBtxEcZIAyTHxNxoPZa0rbvQq1HQAMvsVzHxguwaIrcnWLYC1vfRoD+5H4Urp+212jdSn8uJSoyqVVNY1TQDEP3ZvVUwUSO4t0KK/bZJfGwHVi/LbKttCF9d2y7PK6ndOPyhKnpVEkDkXrtR4pWONH1WuVL40kI5uFBpnyuDkZNcveYqbZXhjzFYfG9rlJzg8J8pX9hQmh51NpzFsFb/hufKB3wBqyHH7AQxtHH02j73tuOoMGZ324RBHXt1zeOCPseCyyK7xRihPGKsvYlwRw4s73wMa59Qymuh7X6KVvtS21lAf74iG+mRsraHKE8iGOg0hGpqLWUHsDBum7nKr466Gv2cIYvU5Vk1YZKUMAqU/XdBYf3IkHFQwi5T49WMp/sGSgkiqPlxydbZu5cKK8UtO8VklCD7/iHOX/5XHe/8H2r0bzfZRAAA=')))
+(root/'VERSION').write_text('1.4.48\n',encoding='utf-8')
+(root/'ATUALIZACAO-v1.4.48.md').write_text('''# Escala de Propósito v1.4.48 — Gestão Ministerial
+
+Esta atualização adiciona quatro áreas integradas para facilitar o acompanhamento da igreja:
+
+## Página do Culto
+- Cada escala completa ganhou o botão **Página do culto**.
+- Reúne em uma única tela: **Visão Geral, Escala, Repertório, Confirmações, Trocas, Impressão e Histórico**.
+- O culto continua identificado por **data + culto**, sem misturar outro culto do mesmo dia.
+- A impressão pode ser usada também para **Salvar como PDF** pelo navegador.
+
+## Relatório de Equilíbrio da Equipe
+- Mostra quantos **cultos** e quantas **funções** cada pessoa recebeu no período.
+- Inclui filtro por período, busca por nome e filtro por departamento.
+- Destaca de forma visual: **Sem escala, Carga bai
