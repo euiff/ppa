@@ -1,0 +1,84 @@
+name: Publish Escala de Proposito v1.4.56 Master Edit Scale
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1456-master-edit-scale.yml'
+      - 'scripts/patch-v1456-master-edit-scale.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.55 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.55 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.55"
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print0 | sort -z | xargs -0 sha256sum > /tmp/assets-before.sha
+
+      - name: Apply Master edit feature
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1456-master-edit-scale.py
+
+      - name: Validate v1.4.56
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.56"
+          php -l pkg/api/master-scales.php
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('pkg/master-escalas.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script>(.*?)</script>',s,re.S)
+          if not scripts:
+              raise SystemExit('master script not found')
+          Path('/tmp/master-v1456.js').write_text('\n'.join(scripts),encoding='utf-8')
+          PY
+          node --check /tmp/master-v1456.js
+          grep -Fq "Somente o MASTER pode gerenciar escalas completas" pkg/api/master-scales.php
+          grep -Fq "master_edit_complete_scale" pkg/api/master-scales.php
+          grep -Fq "INSERT INTO cultos" pkg/api/master-scales.php
+          grep -Fq "action:'edit'" pkg/master-escalas.html
+          grep -Fq "Editar escala completa" pkg/master-escalas.html
+          grep -Fq "Nome da escala / culto" pkg/master-escalas.html
+          grep -Fq "Pessoas, funções e confirmações foram preservadas" pkg/master-escalas.html
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print0 | sort -z | xargs -0 sha256sum > /tmp/assets-after.sha
+          diff -u /tmp/assets-before.sha /tmp/assets-after.sha
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.56.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.56.txt
+
+      - name: Publish v1.4.56
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.56 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.56             escala-de-proposito-cpanel.zip             escalastop-cpanel.zip             SHA256-v1.4.56.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito v1.4.56'             --notes-file pkg/ATUALIZACAO-v1.4.56.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.56
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.56.txt
+          retention-days: 30
