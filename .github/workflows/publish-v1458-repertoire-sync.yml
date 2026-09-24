@@ -1,0 +1,79 @@
+name: Publish Escala de Proposito v1.4.58 Repertoire Sync
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1458-repertoire-sync.yml'
+      - 'scripts/patch-v1458-repertoire-sync.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.57 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.57 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.57"
+
+      - name: Apply repertoire sync fix
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1458-repertoire-sync.py
+
+      - name: Validate v1.4.58
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.58"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          php -l pkg/api/ministerial-hub.php
+          node --check "$ASSET"
+          grep -Fq "function mh_rep_key" pkg/api/ministerial-hub.php
+          grep -Fq "HAVING qtd>0" pkg/api/ministerial-hub.php
+          grep -Fq "repertoire_setlist_id" pkg/api/ministerial-hub.php
+          grep -Fq "Música removida do repertório deste culto" "$ASSET"
+          grep -Fq '.delete().in("setlist_id",K).eq("musica_id",A)' "$ASSET"
+          grep -Fq "Repertório único e sincronizado" pkg/ATUALIZACAO-v1.4.58.md
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.58.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.58.txt
+
+      - name: Publish v1.4.58
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.58 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.58 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.58.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.58' \
+            --notes-file pkg/ATUALIZACAO-v1.4.58.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.58
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.58.txt
+          retention-days: 30
