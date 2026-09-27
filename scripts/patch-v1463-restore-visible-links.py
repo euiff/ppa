@@ -26,8 +26,8 @@ if n!=1:
     raise SystemExit(f'restore visible urls: {n}')
 
 
-pat=re.compile(r"function v1462_valid_url\\(string \\$url\\): bool \\{.*?\\n\\}\\nfunction v1435_show_pdf_choices",re.S)
-s,n=pat.subn('function v1435_show_pdf_choices',s,count=1)
+pat=re.compile(r"function v1462_valid_url.*?(?=function v1435_show_pdf_choices)",re.S)
+s,n=pat.subn('',s,count=1)
 if n!=1:
     raise SystemExit(f'remove v1462 helpers: {n}')
 
