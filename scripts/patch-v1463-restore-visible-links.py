@@ -39,7 +39,7 @@ rep(
 
 p.write_text(s,encoding='utf-8')
 
-(root/'VERSION').write_text('1.4.63\\n',encoding='utf-8')
+(root/'VERSION').write_text('1.4.63\n',encoding='utf-8')
 (root/'ATUALIZACAO-v1.4.63.md').write_text('''# Escala de Propósito v1.4.63 — Links visíveis novamente no repertório
 
 - Reverte somente a mudança de botões da v1.4.62.
