@@ -1,0 +1,78 @@
+name: Publish Escala de Proposito v1.4.62 WhatsApp URL Buttons
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1462-whatsapp-url-buttons.yml'
+      - 'scripts/patch-v1462-whatsapp-url-buttons.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.61 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.61 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.61"
+
+      - name: Apply WhatsApp URL buttons
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1462-whatsapp-url-buttons.py
+
+      - name: Validate v1.4.62
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.62"
+          php -l pkg/api/volunteer_menu_v1435.php
+          grep -Fq 'v1462_send_song_links' pkg/api/volunteer_menu_v1435.php
+          grep -Fq 'YouTube — Clique aqui' pkg/api/volunteer_menu_v1435.php
+          grep -Fq 'Cifra — Clique aqui' pkg/api/volunteer_menu_v1435.php
+          grep -Fq '/message/sendButtons/' pkg/api/volunteer_menu_v1435.php
+          grep -Fq "'type'=>'url'" pkg/api/volunteer_menu_v1435.php
+          grep -Fq 'Clique aqui no botão abaixo' pkg/api/volunteer_menu_v1435.php
+          grep -Fq 'volunteer_music_link_fallback' pkg/api/volunteer_menu_v1435.php
+          ! grep -Fq '🟢 Spotify:' pkg/api/volunteer_menu_v1435.php
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.62.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.62.txt
+
+      - name: Publish v1.4.62
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.62 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.62 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.62.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.62' \
+            --notes-file pkg/ATUALIZACAO-v1.4.62.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.62
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.62.txt
+          retention-days: 30
