@@ -71,7 +71,7 @@ function v1462_send_repertoire(string $sender,array $r): bool {
 '''
 rep(anchor,helpers+anchor,'button helpers')
 
-old="return v1311p_send($sender,(string)($r['igreja_id']??''),v1436_repertoire_text($r),'volunteer_music_repertoire',['escala_id'=>$r['escala_id'], 'escala_item_id'=>$r['item_id']]);"
+old="return v1311p_send($sender,(string)($r['igreja_id']??''),v1436_repertoire_text($r),'volunteer_music_repertoire',['escala_id'=>$r['escala_id'],'escala_item_id'=>$r['item_id']]);"
 new="return v1462_send_repertoire($sender,$r);"
 rep(old,new,'repertoire sender')
 
