@@ -36,19 +36,17 @@ jobs:
           set -euo pipefail
           test "$(cat pkg/VERSION)" = "1.4.63"
           php -l pkg/api/volunteer_menu_v1435.php
-          grep -Fq '▶️ YouTube: {$yt}' pkg/api/volunteer_menu_v1435.php
-          grep -Fq '🎸 Cifra: {$cifra}' pkg/api/volunteer_menu_v1435.php
-          grep -Fq 'Tom para tocar' pkg/api/volunteer_menu_v1435.php
-          ! grep -Fq 'Clique aqui no botão abaixo' pkg/api/volunteer_menu_v1435.php
-          ! grep -Fq 'v1462_send_repertoire' pkg/api/volunteer_menu_v1435.php
-          ! grep -Fq '/message/sendButtons/' pkg/api/volunteer_menu_v1435.php
-          ! grep -Fq '🟢 Spotify:' pkg/api/volunteer_menu_v1435.php
           python - <<'PY'
           from pathlib import Path
           s=Path('pkg/api/volunteer_menu_v1435.php').read_text(encoding='utf-8')
-          y=s.index('▶️ YouTube: {$yt}')
-          c=s.index('🎸 Cifra: {$cifra}')
-          assert y < c, 'YouTube must appear before Cifra'
+          assert '▶️ YouTube: {$yt}' in s
+          assert '🎸 Cifra: {$cifra}' in s
+          assert 'Tom para tocar' in s
+          assert 'Clique aqui no botão abaixo' not in s
+          assert 'v1462_send_repertoire' not in s
+          assert '/message/sendButtons/' not in s
+          assert '🟢 Spotify:' not in s
+          assert s.index('▶️ YouTube: {$yt}') < s.index('🎸 Cifra: {$cifra}')
           PY
 
       - name: Build release packages
