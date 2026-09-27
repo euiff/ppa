@@ -12,13 +12,19 @@ def rep(old,new,label):
         raise SystemExit(f'{label}: anchor count={c}')
     s=s.replace(old,new,1)
 
-old='''        if($yt!==\'\')$m.="\\n▶️ YouTube: *Clique aqui no botão abaixo*";
-        if($cifra!==\'\')$m.="\\n🎸 Cifra: *Clique aqui no botão abaixo*";
-        if($yt===\'\'&&$cifra===\'\')$m.="\\n🔗 Links de estudo: _não cadastrados_";'''
-new='''        if($yt!==\'\')$m.="\\n▶️ YouTube: {$yt}";
-        if($cifra!==\'\')$m.="\\n🎸 Cifra: {$cifra}";
-        if($yt===\'\'&&$cifra===\'\')$m.="\\n🔗 Links de estudo: _não cadastrados_";'''
-rep(old,new,'restore visible urls')
+pat_links=re.compile(r'''        if\(\$yt!==''\)\$m\.="\n▶️ YouTube: \*Clique aqui no botão abaixo\*";
+        if\(\$cifra!==''\)\$m\.="\n🎸 Cifra: \*Clique aqui no botão abaixo\*";
+        if\(\$yt===''&&\$cifra===''\)\$m\.="\n🔗 Links de estudo: _não cadastrados_";''')
+new_links='''        if($yt!=='')$m.="
+▶️ YouTube: {$yt}";
+        if($cifra!=='')$m.="
+🎸 Cifra: {$cifra}";
+        if($yt===''&&$cifra==='')$m.="
+🔗 Links de estudo: _não cadastrados_";'''
+s,n=pat_links.subn(new_links,s,count=1)
+if n!=1:
+    raise SystemExit(f'restore visible urls: {n}')
+
 
 pat=re.compile(r"function v1462_valid_url\\(string \\$url\\): bool \\{.*?\\n\\}\\nfunction v1435_show_pdf_choices",re.S)
 s,n=pat.subn('function v1435_show_pdf_choices',s,count=1)
