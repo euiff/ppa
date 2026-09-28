@@ -1,0 +1,75 @@
+name: Publish Escala de Proposito v1.4.64 Pastor Edit Scale
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1464-pastor-edit-scale.yml'
+      - 'scripts/patch-v1464-pastor-edit-scale.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.63 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.63 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.63"
+
+      - name: Apply Pastor edit scale
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1464-pastor-edit-scale.py
+
+      - name: Validate v1.4.64
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.64"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          node --check "$ASSET"
+          php -l pkg/api/pastor-scale-edit.php
+          test -f pkg/pastor-editar-escala.html
+          grep -Fq 't==="admin"&&r.jsx("a",{href:`/pastor-editar-escala.html' "$ASSET"
+          grep -Fq '✏️ Editar dados' "$ASSET"
+          grep -Fq "if(\$role!=='admin')" pkg/api/pastor-scale-edit.php
+          grep -Fq 'Somente o Pastor pode editar os dados da escala.' pkg/api/pastor-scale-edit.php
+          grep -Fq 'pastor_edit_complete_scale' pkg/api/pastor-scale-edit.php
+          grep -Fq 'nome, data e horário' pkg/pastor-editar-escala.html
+          grep -Fq 'Pessoas, funções, confirmações e repertório foram preservados' pkg/pastor-editar-escala.html
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.64.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.64.txt
+
+      - name: Publish v1.4.64
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.64 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.64             escala-de-proposito-cpanel.zip             escalastop-cpanel.zip             SHA256-v1.4.64.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito v1.4.64'             --notes-file pkg/ATUALIZACAO-v1.4.64.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.64
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.64.txt
+          retention-days: 30
