@@ -1,0 +1,21 @@
+{
+  "version": "1.4.65",
+  "name": "Escala de Propósito v1.4.65 - App como canal principal",
+  "notes": "Remove Migração Supabase do clone, adiciona pendências próprias do app, notificações e badge, mantendo WhatsApp como recurso complementar.",
+  "published_at": "2026-09-29T21:10:21Z",
+  "html_url": "https://github.com/euiff/escaladeproposito/releases/tag/clone-v1.4.65-app-first",
+  "files": [
+    {
+      "path": "api/app-pending.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.65/api/app-pending.php"
+    },
+    {
+      "path": "clone-app-notifications.js",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.65/clone-app-notifications.js"
+    }
+  ],
+  "delete": [],
+  "patch": {
+    "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.65/patch.php"
+  }
+}
