@@ -1,8 +1,8 @@
 {
-  "version": "1.4.73",
-  "name": "Escala de Propósito v1.4.73 - Gestão Comercial funcional",
-  "notes": "Substitui o backend comercial antigo por uma API própria do clone, compatível com o MySQL atual. Corrige HTTP 500, faz Clientes listar igrejas/assinaturas, Usuários listar contas reais, Planos/Promoções/Pagamentos funcionarem e mantém Mercado Pago configurável. Remove dependência do system_observer no endpoint comercial.",
-  "published_at": "2026-09-30T15:55:00Z",
+  "version": "1.4.74",
+  "name": "Escala de Propósito v1.4.74 - Corrige banco comercial antigo",
+  "notes": "Corrige o erro SQL Unknown column duracao_dias e atualiza automaticamente tabelas comerciais antigas antes de inserir planos. Reforça também as colunas de assinaturas, promoções e pagamentos para evitar novos erros de schema.",
+  "published_at": "2026-09-30T17:02:00Z",
   "html_url": "https://github.com/euiff/escaladeproposito",
   "files": [
     {
@@ -23,7 +23,7 @@
     },
     {
       "path": "api/billing-master-v1314.php",
-      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.73/api/billing-master-v1314.php"
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.74/api/billing-master-v1314.php"
     },
     {
       "path": "master-comercial.html",
