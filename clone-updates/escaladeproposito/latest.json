@@ -1,8 +1,8 @@
 {
-  "version": "1.4.66",
-  "name": "Escala de Propósito v1.4.66 - Correção Configurações e CRON",
-  "notes": "Corrige HTTP 404 na página de Configurações do Master adicionando api/functions.php e geração automática da cron_key. Inclui também as melhorias app-first da v1.4.65.",
-  "published_at": "2026-09-29T22:23:00Z",
+  "version": "1.4.70",
+  "name": "Escala de Propósito v1.4.70 - Correção de usuários e Pastor",
+  "notes": "Corrige o erro 'Usuário não informado' ao criar Pastor/usuário. Completa o endpoint admin-update-user com criação, busca, promoção de Pastor, edição de perfil, e-mail, senha e cargo. Mantém as correções de Configurações/CRON e recursos app-first.",
+  "published_at": "2026-09-30T14:46:00Z",
   "html_url": "https://github.com/euiff/escaladeproposito",
   "files": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "path": "api/functions.php",
-      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.66/api/functions.php"
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.70/api/functions.php"
     }
   ],
   "delete": [],
