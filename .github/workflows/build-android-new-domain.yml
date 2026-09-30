@@ -1,0 +1,533 @@
+name: Build Escala de Proposito Android - novo dominio
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-android-new-domain.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Create Android project
+        run: |
+          set -euo pipefail
+          mkdir -p android-new/app/src/main/java/br/com/inaciolabs/escaladeproposito
+          mkdir -p android-new/app/src/main/res/values
+          mkdir -p android-new/app/src/main/res/drawable
+
+          cat > android-new/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "EscalaDeProposito"
+          include(":app")
+          EOF
+          sed -i 's/^          //' android-new/settings.gradle
+
+          cat > android-new/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+          sed -i 's/^          //' android-new/build.gradle
+
+          cat > android-new/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          EOF
+          sed -i 's/^          //' android-new/gradle.properties
+
+          cat > android-new/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'br.com.inaciolabs.escaladeproposito'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'br.com.inaciolabs.escaladeproposito'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 120
+                  versionName '1.2.0'
+              }
+
+              buildTypes {
+                  debug {
+                      applicationIdSuffix ''
+                      versionNameSuffix '-novo-dominio'
+                  }
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+          sed -i 's/^          //' android-new/app/build.gradle
+
+          cat > android-new/app/proguard-rules.pro <<'EOF'
+          -keepclassmembers class * {
+              @android.webkit.JavascriptInterface <methods>;
+          }
+          EOF
+          sed -i 's/^          //' android-new/app/proguard-rules.pro
+
+          cat > android-new/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+              <application
+                  android:allowBackup="true"
+                  android:usesCleartextTraffic="false"
+                  android:icon="@drawable/ic_launcher"
+                  android:roundIcon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="https" android:host="escaladeproposito.com.br" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          sed -i 's/^          //' android-new/app/src/main/AndroidManifest.xml
+
+          cat > android-new/app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Escala de Propósito</string>
+          </resources>
+          EOF
+          sed -i 's/^          //' android-new/app/src/main/res/values/strings.xml
+
+          cat > android-new/app/src/main/res/values/colors.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="brand_primary">#3730A3</color>
+              <color name="brand_primary_dark">#1E1B4B</color>
+          </resources>
+          EOF
+          sed -i 's/^          //' android-new/app/src/main/res/values/colors.xml
+
+          cat > android-new/app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">@color/brand_primary</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">@color/brand_primary_dark</item>
+                  <item name="android:navigationBarColor">@color/brand_primary_dark</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:windowNoTitle">true</item>
+              </style>
+          </resources>
+          EOF
+          sed -i 's/^          //' android-new/app/src/main/res/values/styles.xml
+
+          cat > android-new/app/src/main/res/drawable/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#3730A3" android:pathData="M54,4 A50,50 0,1 1,53.9 4" />
+              <path android:fillColor="#FFFFFF" android:pathData="M29,28 L79,28 L79,78 L29,78 Z" />
+              <path android:fillColor="#3730A3" android:pathData="M35,38 L73,38 L73,45 L35,45 Z" />
+              <path android:fillColor="#3730A3" android:pathData="M38,56 L49,67 L70,45 L75,50 L49,76 L33,61 Z" />
+          </vector>
+          EOF
+          sed -i 's/^          //' android-new/app/src/main/res/drawable/ic_launcher.xml
+
+          cat > android-new/app/src/main/java/br/com/inaciolabs/escaladeproposito/MainActivity.java <<'EOF'
+          package br.com.inaciolabs.escaladeproposito;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.app.DownloadManager;
+          import android.content.ActivityNotFoundException;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.net.http.SslError;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.view.WindowInsets;
+          import android.webkit.CookieManager;
+          import android.webkit.DownloadListener;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.SslErrorHandler;
+          import android.webkit.URLUtil;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.Toast;
+
+          import java.util.Locale;
+
+          public class MainActivity extends Activity {
+              private static final String APP_URL = "https://escaladeproposito.com.br/?__app=1";
+              private static final String NEW_HOST = "escaladeproposito.com.br";
+              private static final int FILE_CHOOSER_REQUEST = 7001;
+              private static final int LOCATION_REQUEST = 7002;
+
+              private WebView webView;
+              private ValueCallback<Uri[]> filePathCallback;
+              private GeolocationPermissions.Callback pendingGeoCallback;
+              private String pendingGeoOrigin;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(Color.WHITE);
+                  webView = new WebView(this);
+                  root.addView(webView, new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                  ));
+                  setContentView(root);
+
+                  applySystemBarInsets(root);
+                  configureWebView();
+
+                  if (savedInstanceState != null) {
+                      webView.restoreState(savedInstanceState);
+                  } else {
+                      webView.loadUrl(APP_URL);
+                  }
+              }
+
+              private void applySystemBarInsets(View root) {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                      getWindow().setDecorFitsSystemWindows(false);
+                      root.setOnApplyWindowInsetsListener((v, insets) -> {
+                          android.graphics.Insets bars = insets.getInsets(
+                                  WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars()
+                          );
+                          v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                          return insets;
+                      });
+                      root.requestApplyInsets();
+                  } else {
+                      root.setFitsSystemWindows(true);
+                  }
+              }
+
+              private void configureWebView() {
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setGeolocationEnabled(true);
+                  settings.setLoadWithOverviewMode(false);
+                  settings.setUseWideViewPort(false);
+                  settings.setSupportZoom(false);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setAllowFileAccess(false);
+                  settings.setAllowContentAccess(true);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                      settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                  }
+                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/1.2.0");
+
+                  CookieManager cookies = CookieManager.getInstance();
+                  cookies.setAcceptCookie(true);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                      cookies.setAcceptThirdPartyCookies(webView, true);
+                  }
+
+                  webView.setWebViewClient(new AppWebViewClient());
+                  webView.setWebChromeClient(new AppWebChromeClient());
+                  webView.setDownloadListener(new AppDownloadListener());
+                  webView.setBackgroundColor(Color.WHITE);
+                  webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+              }
+
+              private boolean isNewDomain(String host) {
+                  if (host == null) return false;
+                  host = host.toLowerCase(Locale.ROOT);
+                  return host.equals(NEW_HOST) || host.equals("www." + NEW_HOST);
+              }
+
+              private boolean isOldDomain(String host) {
+                  if (host == null) return false;
+                  host = host.toLowerCase(Locale.ROOT);
+                  return host.equals("escala.isaacanthony.com.br")
+                          || host.equals("www.isaacanthony.com.br")
+                          || host.equals("topescalas.vercel.app");
+              }
+
+              private String migrateOldUrl(Uri uri) {
+                  return uri.buildUpon().scheme("https").authority(NEW_HOST).build().toString();
+              }
+
+              private void openExternal(Uri uri) {
+                  try {
+                      startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                  } catch (ActivityNotFoundException e) {
+                      Toast.makeText(this, "Não foi possível abrir este link.", Toast.LENGTH_SHORT).show();
+                  }
+              }
+
+              private class AppWebViewClient extends WebViewClient {
+                  @Override
+                  public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                      return handleUri(view, request.getUrl());
+                  }
+
+                  @Override
+                  public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                      return handleUri(view, Uri.parse(url));
+                  }
+
+                  private boolean handleUri(WebView view, Uri uri) {
+                      String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+                      String host = uri.getHost();
+
+                      if ("https".equals(scheme) || "http".equals(scheme)) {
+                          if (isOldDomain(host)) {
+                              view.loadUrl(migrateOldUrl(uri));
+                              return true;
+                          }
+                          if (isNewDomain(host)) return false;
+                          openExternal(uri);
+                          return true;
+                      }
+
+                      if ("tel".equals(scheme) || "mailto".equals(scheme) || "sms".equals(scheme)
+                              || "whatsapp".equals(scheme) || "intent".equals(scheme)) {
+                          openExternal(uri);
+                          return true;
+                      }
+                      return false;
+                  }
+
+                  @Override
+                  public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                      handler.cancel();
+                      Toast.makeText(MainActivity.this, "Conexão segura não pôde ser validada.", Toast.LENGTH_LONG).show();
+                  }
+              }
+
+              private class AppWebChromeClient extends WebChromeClient {
+                  @Override
+                  public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
+                                                   FileChooserParams params) {
+                      if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                      filePathCallback = callback;
+                      try {
+                          startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                          return true;
+                      } catch (ActivityNotFoundException e) {
+                          filePathCallback = null;
+                          Toast.makeText(MainActivity.this, "Nenhum seletor de arquivos disponível.", Toast.LENGTH_SHORT).show();
+                          return false;
+                      }
+                  }
+
+                  @Override
+                  public void onGeolocationPermissionsShowPrompt(String origin,
+                                                                 GeolocationPermissions.Callback callback) {
+                      if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                              || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                          callback.invoke(origin, true, false);
+                          return;
+                      }
+                      pendingGeoOrigin = origin;
+                      pendingGeoCallback = callback;
+                      requestPermissions(new String[]{
+                              Manifest.permission.ACCESS_FINE_LOCATION,
+                              Manifest.permission.ACCESS_COARSE_LOCATION
+                      }, LOCATION_REQUEST);
+                  }
+              }
+
+              private class AppDownloadListener implements DownloadListener {
+                  @Override
+                  public void onDownloadStart(String url, String userAgent, String contentDisposition,
+                                              String mimeType, long contentLength) {
+                      try {
+                          DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                          request.setMimeType(mimeType);
+                          request.addRequestHeader("User-Agent", userAgent);
+                          String cookie = CookieManager.getInstance().getCookie(url);
+                          if (cookie != null) request.addRequestHeader("Cookie", cookie);
+                          String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                          request.setTitle(fileName);
+                          request.setDescription("Baixando pelo Escala de Propósito");
+                          request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                          request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                          DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                          dm.enqueue(request);
+                          Toast.makeText(MainActivity.this, "Download iniciado.", Toast.LENGTH_SHORT).show();
+                      } catch (Exception e) {
+                          openExternal(Uri.parse(url));
+                      }
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
+                      Uri[] results = null;
+                      if (resultCode == RESULT_OK && data != null) {
+                          if (data.getClipData() != null) {
+                              int count = data.getClipData().getItemCount();
+                              results = new Uri[count];
+                              for (int i = 0; i < count; i++) {
+                                  results[i] = data.getClipData().getItemAt(i).getUri();
+                              }
+                          } else if (data.getData() != null) {
+                              results = new Uri[]{data.getData()};
+                          }
+                      }
+                      filePathCallback.onReceiveValue(results);
+                      filePathCallback = null;
+                  }
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == LOCATION_REQUEST && pendingGeoCallback != null) {
+                      boolean granted = false;
+                      for (int result : grantResults) {
+                          if (result == PackageManager.PERMISSION_GRANTED) {
+                              granted = true;
+                              break;
+                          }
+                      }
+                      pendingGeoCallback.invoke(pendingGeoOrigin, granted, false);
+                      pendingGeoCallback = null;
+                      pendingGeoOrigin = null;
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle outState) {
+                  if (webView != null) webView.saveState(outState);
+                  super.onSaveInstanceState(outState);
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (webView != null) {
+                      webView.loadUrl("about:blank");
+                      webView.stopLoading();
+                      webView.setWebChromeClient(null);
+                      webView.setWebViewClient(null);
+                      webView.destroy();
+                  }
+                  super.onDestroy();
+              }
+          }
+          EOF
+          sed -i 's/^          //' android-new/app/src/main/java/br/com/inaciolabs/escaladeproposito/MainActivity.java
+
+      - name: Build APK
+        working-directory: android-new
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:assembleDebug
+
+      - name: Validate APK
+        run: |
+          set -euo pipefail
+          APK=android-new/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          unzip -p "$APK" classes.dex > /tmp/classes.dex
+          strings /tmp/classes.dex | grep -Fq 'escaladeproposito.com.br'
+          strings /tmp/classes.dex | grep -Fq 'EscalaDePropositoAndroid/1.2.0'
+          cp "$APK" Escala-de-Proposito-v1.2.0-NOVO-DOMINIO.apk
+          sha256sum Escala-de-Proposito-v1.2.0-NOVO-DOMINIO.apk > SHA256-ANDROID-v1.2.0.txt
+
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete android-v1.2.0-novo-dominio --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-v1.2.0-novo-dominio             Escala-de-Proposito-v1.2.0-NOVO-DOMINIO.apk             SHA256-ANDROID-v1.2.0.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Android v1.2.0 — novo domínio'             --notes 'APK Android para https://escaladeproposito.com.br/?__app=1. Mantém o pacote br.com.inaciolabs.escaladeproposito e redireciona os domínios antigos para o novo.'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Escala-de-Proposito-Android-v1.2.0-NOVO-DOMINIO
+          path: |
+            Escala-de-Proposito-v1.2.0-NOVO-DOMINIO.apk
+            SHA256-ANDROID-v1.2.0.txt
+          retention-days: 30
