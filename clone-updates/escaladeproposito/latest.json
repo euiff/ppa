@@ -1,8 +1,8 @@
 {
-  "version": "1.4.71",
-  "name": "Escala de Propósito v1.4.71 - Gestão Comercial e Usuários",
-  "notes": "Restaura o módulo comercial completo do clone. Corrige o erro Unexpected end of JSON input, volta a listar usuários e igrejas no painel de cobranças, mantém Planos/Promoções/Pagamentos/Mercado Pago e remove a Migração Supabase do clone. Inclui também a correção v1.4.70 de criação e administração de usuários/Pastor.",
-  "published_at": "2026-09-30T15:10:00Z",
+  "version": "1.4.72",
+  "name": "Escala de Propósito v1.4.72 - Corrige HTTP 500 da Gestão Comercial",
+  "notes": "Corrige o HTTP 500 da Gestão Comercial instalando a dependência system_observer_v1423.php antes do módulo de billing. Mantém a restauração completa da Gestão Comercial da v1.4.71, a listagem de usuários/igrejas e a correção de criação de Pastor/usuários da v1.4.70.",
+  "published_at": "2026-09-30T15:16:00Z",
   "html_url": "https://github.com/euiff/escaladeproposito",
   "files": [
     {
@@ -16,6 +16,10 @@
     {
       "path": "api/functions.php",
       "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.70/api/functions.php"
+    },
+    {
+      "path": "api/system_observer_v1423.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.72/api/system_observer_v1423.php"
     }
   ],
   "delete": [
