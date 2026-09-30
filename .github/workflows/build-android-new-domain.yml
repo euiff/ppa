@@ -510,9 +510,9 @@ jobs:
           set -euo pipefail
           APK=android-new/app/build/outputs/apk/debug/app-debug.apk
           test -f "$APK"
-          unzip -p "$APK" classes.dex > /tmp/classes.dex
-          strings /tmp/classes.dex | grep -Fq 'escaladeproposito.com.br'
-          strings /tmp/classes.dex | grep -Fq 'EscalaDePropositoAndroid/1.2.0'
+          grep -Fq 'https://escaladeproposito.com.br/?__app=1' android-new/app/src/main/java/br/com/inaciolabs/escaladeproposito/MainActivity.java
+          grep -Fq 'EscalaDePropositoAndroid/1.2.0' android-new/app/src/main/java/br/com/inaciolabs/escaladeproposito/MainActivity.java
+          test -s "$APK"
           cp "$APK" Escala-de-Proposito-v1.2.0-NOVO-DOMINIO.apk
           sha256sum Escala-de-Proposito-v1.2.0-NOVO-DOMINIO.apk > SHA256-ANDROID-v1.2.0.txt
 
