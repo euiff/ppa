@@ -54,7 +54,8 @@ $copy=[
     'api/billing-public.php',
     'api/billing-checkout.php',
     'api/mercadopago-webhook.php',
-    'api/subscription-status.php'
+    'api/subscription-status.php',
+    'api/system_observer_v1423.php'
 ];
 
 foreach($copy as$rel){
