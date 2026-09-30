@@ -1,8 +1,8 @@
 {
-  "version": "1.4.74",
-  "name": "Escala de Propósito v1.4.74 - Corrige banco comercial antigo",
-  "notes": "Corrige o erro SQL Unknown column duracao_dias e atualiza automaticamente tabelas comerciais antigas antes de inserir planos. Reforça também as colunas de assinaturas, promoções e pagamentos para evitar novos erros de schema.",
-  "published_at": "2026-09-30T17:02:00Z",
+  "version": "1.4.75",
+  "name": "Escala de Propósito v1.4.75 - Gestão Comercial revisada e testada",
+  "notes": "Revisão completa da Gestão Comercial. Corrige bancos novos e legados, inclusive tabelas com id obrigatório e colunas antigas. Valida Planos, Promoções, Clientes/Assinaturas, Pagamentos manuais, Usuários, status da licença, checkout e webhook. Inclui as correções anteriores de criação de Pastor/usuários e notificações do app.",
+  "published_at": "2026-09-30T21:22:00Z",
   "html_url": "https://github.com/euiff/escaladeproposito",
   "files": [
     {
@@ -23,11 +23,43 @@
     },
     {
       "path": "api/billing-master-v1314.php",
-      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.74/api/billing-master-v1314.php"
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/billing-master-v1314.php"
+    },
+    {
+      "path": "api/billing_lib_v1313.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/billing_lib_v1313.php"
+    },
+    {
+      "path": "api/billing_lib_v1314.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/billing_lib_v1314.php"
+    },
+    {
+      "path": "api/billing-public.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/billing-public.php"
+    },
+    {
+      "path": "api/subscription-status.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/subscription-status.php"
+    },
+    {
+      "path": "api/billing-checkout.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/billing-checkout.php"
+    },
+    {
+      "path": "api/mercadopago-webhook.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/mercadopago-webhook.php"
+    },
+    {
+      "path": "api/tenant_access_v1323.php",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/api/tenant_access_v1323.php"
     },
     {
       "path": "master-comercial.html",
-      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.73/master-comercial.html"
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/master-comercial.html"
+    },
+    {
+      "path": "master-commerce-entry.js",
+      "url": "https://raw.githubusercontent.com/euiff/ppa/main/clone-updates/escaladeproposito/v1.4.75/master-commerce-entry.js"
     }
   ],
   "delete": [
