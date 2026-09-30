@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'br.com.inaciolabs.escaladeproposito'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'br.com.inaciolabs.escaladeproposito'
+        minSdk 23
+        targetSdk 35
+        versionCode 120
+        versionName '1.2.0'
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ''
+            versionNameSuffix '-novo-dominio'
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
