@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           echo '--- functions ---'
-          grep -nE '^function |webhook_url|sales_url|app_url|mercadopago_public_key|save_settings|save_plan' pkg/api/billing-master-v1314.php | head -n 120 || true
+          sed -n '1,110p' pkg/api/billing-master-v1314.php
           echo '--- billing app url ---'
           grep -nE 'billing_app_url|notification_url' pkg/api/billing_lib_v1313.php pkg/api/billing-checkout.php | head -n 80 || true
 
