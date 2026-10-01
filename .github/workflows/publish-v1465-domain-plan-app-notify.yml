@@ -1,0 +1,91 @@
+name: Publish Escala de Proposito v1.4.65 Domain Plans App Notify
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1465-domain-plan-app-notify.yml'
+      - 'scripts/patch-v1465-domain-plan-app-notify.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.64 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.64 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '47c6aac93973679ef9e88fd192aa0a36748b66289f8f2839417c3ecac39bf3ab  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.64"
+
+      - name: Apply v1.4.65
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1465-domain-plan-app-notify.py
+
+      - name: Validate v1.4.65
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.65"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          node --check "$ASSET"
+          node --check pkg/app-notifications-v1465.js
+          node --check pkg/plan-feature-guard-v1465.js
+          php -l pkg/api/billing-master-v1314.php
+          php -l pkg/api/billing_lib_v1313.php
+          php -l pkg/api/billing-checkout.php
+          php -l pkg/api/plan_features_v1465.php
+          php -l pkg/api/plan-features.php
+          php -l pkg/api/app-pending.php
+          php -l pkg/api/app-device.php
+          php -l pkg/api/whatsapp_transport_v1424.php
+          grep -Fq 'onClickCapture:it=>' "$ASSET"
+          grep -Fq 'b(ce.id)' "$ASSET"
+          grep -Fq 'Domínio oficial do sistema' pkg/master-comercial.html
+          grep -Fq 'system_public_url' pkg/api/billing-master-v1314.php
+          grep -Fq 'whatsapp_enabled' pkg/api/billing-master-v1314.php
+          grep -Fq 'app_notifications_enabled' pkg/api/billing-master-v1314.php
+          grep -Fq 'plan_features_v1465.php' pkg/api/whatsapp_transport_v1424.php
+          grep -Fq "v1465_feature_enabled" pkg/api/whatsapp_transport_v1424.php
+          grep -Fq '/api/app-pending.php' pkg/app-notifications-v1465.js
+          grep -Fq '/api/plan-features.php' pkg/plan-feature-guard-v1465.js
+          grep -Fq 'app-notifications-v1465.js?v=1.4.65' pkg/sistema.html
+          grep -Fq 'plan-feature-guard-v1465.js?v=1.4.65' pkg/sistema.html
+          grep -Fq 'app-notification-click-v1.4.65' pkg/sw.js
+          grep -Fq 'https://escaladeproposito.com.br' pkg/ATUALIZACAO-v1.4.65.md
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.65.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.65.txt
+
+      - name: Publish v1.4.65
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.65 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.65             escala-de-proposito-cpanel.zip             escalastop-cpanel.zip             SHA256-v1.4.65.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito v1.4.65'             --notes-file pkg/ATUALIZACAO-v1.4.65.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.65
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.65.txt
+          retention-days: 30
