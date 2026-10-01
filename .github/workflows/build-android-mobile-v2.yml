@@ -79,8 +79,8 @@ jobs:
                   applicationId 'br.com.inaciolabs.escaladeproposito.mobile'
                   minSdk 23
                   targetSdk 35
-                  versionCode 202
-                  versionName '2.0.2'
+                  versionCode 203
+                  versionName '2.0.3'
               }
 
               signingConfigs {
@@ -368,7 +368,7 @@ jobs:
                       conn.setReadTimeout(20000);
                       conn.setRequestProperty("Authorization", "Bearer " + token);
                       conn.setRequestProperty("Accept", "application/json");
-                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.2 NativeNotify");
+                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.3 NativeNotify");
                       int code = conn.getResponseCode();
                       InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
                       if (stream == null) return;
@@ -595,12 +595,22 @@ jobs:
               }
 
               private void applySystemBarInsets(View root) {
-                  // v2.0.2: o app controla os insets nativamente.
-                  // O rodapé fica sempre acima da barra/botões do Android.
-                  // No topo reduzimos apenas 4dp para aproveitar um pouco melhor a tela,
-                  // sem encostar os controles do app nos ícones da barra de status.
+                  // v2.0.3: margens mais compactas, mantendo uma pequena área segura.
+                  // Reduzimos de forma perceptível tanto o topo quanto o rodapé,
+                  // sem deixar os controles principais encostarem nas barras do Android.
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                       getWindow().setDecorFitsSystemWindows(false);
+                      if (getWindow().getInsetsController() != null) {
+                          getWindow().getInsetsController().setSystemBarsAppearance(
+                                  android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                                  android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                          );
+                      }
+                  } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      getWindow().getDecorView().setSystemUiVisibility(
+                              getWindow().getDecorView().getSystemUiVisibility()
+                                      | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                      );
                   }
 
                   root.setFitsSystemWindows(false);
@@ -619,12 +629,13 @@ jobs:
                           bottomInset = insets.getSystemWindowInsetBottom();
                       }
 
-                      int trimTop = Math.round(
-                              4f * getResources().getDisplayMetrics().density
-                      );
+                      float density = getResources().getDisplayMetrics().density;
+                      int trimTop = Math.round(18f * density);
+                      int trimBottom = Math.round(16f * density);
                       int safeTop = Math.max(0, topInset - trimTop);
+                      int safeBottom = Math.max(0, bottomInset - trimBottom);
 
-                      v.setPadding(0, safeTop, 0, Math.max(0, bottomInset));
+                      v.setPadding(0, safeTop, 0, safeBottom);
                       return insets;
                   });
 
@@ -649,7 +660,7 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
                   }
-                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.2 MobilePackage");
+                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.3 MobilePackage");
 
                   CookieManager cookies = CookieManager.getInstance();
                   cookies.setAcceptCookie(true);
@@ -935,13 +946,13 @@ jobs:
           "$AAPT" dump badging "$APK" | tee APK-BADGING.txt
           grep -Fq "package: name='br.com.inaciolabs.escaladeproposito.mobile'" APK-BADGING.txt
           grep -Fq "application-label:'Escala de Propósito'" APK-BADGING.txt
-          grep -Fq "versionName='2.0.2'" APK-BADGING.txt
+          grep -Fq "versionName='2.0.3'" APK-BADGING.txt
 
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee APK-SIGNATURE.txt
           grep -Fq 'Verified' APK-SIGNATURE.txt
 
           grep -Fq 'https://escaladeproposito.com.br/?__app=1'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
-          grep -Fq 'EscalaDePropositoAndroid/2.0.2'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
+          grep -Fq 'EscalaDePropositoAndroid/2.0.3'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
           grep -Fq 'app-pending.php'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/NotificationPoller.java
 
           test "$(wc -c < android-mobile-v2/app/src/main/res/drawable/ic_launcher.png)" -gt 10000
@@ -952,25 +963,25 @@ jobs:
       - name: Prepare deliverables
         run: |
           set -euo pipefail
-          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.2.apk
-          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.2.aab
-          sha256sum Escala-de-Proposito-Mobile-v2.0.2.apk             Escala-de-Proposito-Mobile-v2.0.2.aab > SHA256-ANDROID-MOBILE-v2.0.2.txt
+          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.3.apk
+          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.3.aab
+          sha256sum Escala-de-Proposito-Mobile-v2.0.3.apk             Escala-de-Proposito-Mobile-v2.0.3.aab > SHA256-ANDROID-MOBILE-v2.0.3.txt
 
       - name: Publish Android v2 release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release delete android-mobile-v2.0.2 --yes --cleanup-tag 2>/dev/null || true
-          gh release create android-mobile-v2.0.2             Escala-de-Proposito-Mobile-v2.0.2.apk             Escala-de-Proposito-Mobile-v2.0.2.aab             SHA256-ANDROID-MOBILE-v2.0.2.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.2'             --notes 'Atualização Mobile v2.0.2. Mantém o pacote br.com.inaciolabs.escaladeproposito.mobile e a mesma assinatura da v2.0.0. Mantém o rodapé acima dos botões/barra de navegação do Android, reduz discretamente a margem superior e preserva domínio oficial, ícone, GPS, downloads, deep links e notificações nativas.'
+          gh release delete android-mobile-v2.0.3 --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-mobile-v2.0.3             Escala-de-Proposito-Mobile-v2.0.3.apk             Escala-de-Proposito-Mobile-v2.0.3.aab             SHA256-ANDROID-MOBILE-v2.0.3.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.3'             --notes 'Atualização Mobile v2.0.3. Mantém o pacote br.com.inaciolabs.escaladeproposito.mobile e a mesma assinatura da v2.0.0. Reduz mais as margens superior e inferior, mantém uma pequena área segura junto às barras do Android e melhora a visibilidade dos ícones da barra de status; preserva domínio oficial, ícone, GPS, downloads, deep links e notificações nativas.'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Escala-de-Proposito-Mobile-v2.0.2
+          name: Escala-de-Proposito-Mobile-v2.0.3
           path: |
-            Escala-de-Proposito-Mobile-v2.0.2.apk
-            Escala-de-Proposito-Mobile-v2.0.2.aab
-            SHA256-ANDROID-MOBILE-v2.0.2.txt
+            Escala-de-Proposito-Mobile-v2.0.3.apk
+            Escala-de-Proposito-Mobile-v2.0.3.aab
+            SHA256-ANDROID-MOBILE-v2.0.3.txt
             APK-SIGNATURE.txt
             ICON-SHA256.txt
           retention-days: 90
