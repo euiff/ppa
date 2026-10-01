@@ -1,0 +1,75 @@
+name: Publish Escala de Proposito v1.4.66 Plan Feature Schema Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1466-plan-feature-schema.yml'
+      - 'scripts/patch-v1466-plan-feature-schema.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.65 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.65 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '9ae62852731b70ac89c044e8ad514cf6cfc739e3b717d7cde8372d49d0722fa7  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.65"
+
+      - name: Apply v1.4.66 schema fix
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1466-plan-feature-schema.py
+
+      - name: Validate v1.4.66
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.66"
+          php -l pkg/api/plan_features_schema_v1466.php
+          php -l pkg/api/billing-master-v1314.php
+          php -l pkg/api/billing_lib_v1314.php
+          php -l pkg/api/plan_features_v1465.php
+          grep -Fq 'v1466_ensure_plan_feature_columns' pkg/api/billing-master-v1314.php
+          grep -Fq 'v1466_ensure_plan_feature_columns' pkg/api/billing_lib_v1314.php
+          grep -Fq 'ALTER TABLE saas_plans ADD COLUMN' pkg/api/plan_features_schema_v1466.php
+          grep -Fq 'whatsapp_enabled' pkg/api/plan_features_schema_v1466.php
+          grep -Fq 'app_notifications_enabled' pkg/api/plan_features_schema_v1466.php
+          grep -Fq 'permissao ALTER TABLE' pkg/api/plan_features_schema_v1466.php
+          grep -Fq 'Unknown column whatsapp_enabled' pkg/ATUALIZACAO-v1.4.66.md
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.66.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.66.txt
+
+      - name: Publish v1.4.66
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.66 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.66             escala-de-proposito-cpanel.zip             escalastop-cpanel.zip             SHA256-v1.4.66.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito v1.4.66'             --notes-file pkg/ATUALIZACAO-v1.4.66.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.66
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.66.txt
+          retention-days: 30
