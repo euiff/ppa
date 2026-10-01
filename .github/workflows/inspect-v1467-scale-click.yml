@@ -1,0 +1,51 @@
+name: Inspect v1.4.67 scale click
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v1467-scale-click.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.4.67
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.67 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+      - name: Print relevant bundle contexts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=next(Path('pkg/assets').glob('index-*.js'))
+          s=p.read_text(encoding='utf-8')
+          needles=[
+            'children:Ne.map',
+            'Escala completa',
+            'Página do culto',
+            '/escala/',
+            'Abrir escala completa',
+            'departamento_nome'
+          ]
+          for needle in needles:
+              print('\n===== '+needle+' =====')
+              start=0
+              shown=0
+              while shown<12:
+                  i=s.find(needle,start)
+                  if i<0: break
+                  a=max(0,i-900); b=min(len(s),i+1400)
+                  print(s[a:b])
+                  print('\n---')
+                  start=i+len(needle); shown+=1
+          PY
