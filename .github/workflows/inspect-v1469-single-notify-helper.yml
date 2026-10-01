@@ -1,0 +1,42 @@
+name: Inspect v1.4.69 single notify helper
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v1469-single-notify-helper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.4.69
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.69 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+      - name: Find helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=next(Path('pkg/assets').glob('index-*.js'))
+          s=p.read_text(encoding='utf-8')
+          target='const $=await Ye({escala_id:e.id,escala_item_id:ce.id,force_resend:!0})'
+          i=s.find(target)
+          print('target',i)
+          if i>=0:
+              chunk=s[max(0,i-18000):i+1000]
+              for needle in ['Ye=','const Ye','Ye=async','async function Ye']:
+                  print('\n',needle)
+                  pos=chunk.rfind(needle)
+                  print('pos',pos)
+                  if pos>=0: print(chunk[max(0,pos-1200):pos+4000])
+          PY
