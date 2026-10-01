@@ -79,8 +79,8 @@ jobs:
                   applicationId 'br.com.inaciolabs.escaladeproposito.mobile'
                   minSdk 23
                   targetSdk 35
-                  versionCode 200
-                  versionName '2.0.0'
+                  versionCode 201
+                  versionName '2.0.1'
               }
 
               signingConfigs {
@@ -368,7 +368,7 @@ jobs:
                       conn.setReadTimeout(20000);
                       conn.setRequestProperty("Authorization", "Bearer " + token);
                       conn.setRequestProperty("Accept", "application/json");
-                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.0 NativeNotify");
+                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.1 NativeNotify");
                       int code = conn.getResponseCode();
                       InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
                       if (stream == null) return;
@@ -595,19 +595,15 @@ jobs:
               }
 
               private void applySystemBarInsets(View root) {
+                  // v2.0.1: o Android ajusta o conteúdo às barras do sistema.
+                  // Não aplicamos padding manual no FrameLayout, porque a página web
+                  // já é responsiva/safe-area aware. Isso remove as margens duplicadas.
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                      getWindow().setDecorFitsSystemWindows(false);
-                      root.setOnApplyWindowInsetsListener((v, insets) -> {
-                          android.graphics.Insets bars = insets.getInsets(
-                                  WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars()
-                          );
-                          v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-                          return insets;
-                      });
-                      root.requestApplyInsets();
-                  } else {
-                      root.setFitsSystemWindows(true);
+                      getWindow().setDecorFitsSystemWindows(true);
                   }
+                  root.setFitsSystemWindows(false);
+                  root.setPadding(0, 0, 0, 0);
+                  webView.setPadding(0, 0, 0, 0);
               }
 
               private void configureWebView() {
@@ -627,7 +623,7 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
                   }
-                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.0 MobilePackage");
+                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.1 MobilePackage");
 
                   CookieManager cookies = CookieManager.getInstance();
                   cookies.setAcceptCookie(true);
@@ -724,6 +720,18 @@ jobs:
                   @Override
                   public void onPageFinished(WebView view, String url) {
                       super.onPageFinished(view, url);
+                      // Garante viewport móvel limpo e sem margens criadas pelo container nativo.
+                      view.evaluateJavascript(
+                          "(function(){try{" +
+                          "var d=document.documentElement,b=document.body;" +
+                          "d.style.margin='0';d.style.padding='0';" +
+                          "if(b){b.style.margin='0';}" +
+                          "var m=document.querySelector('meta[name=viewport]');" +
+                          "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}" +
+                          "m.content='width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover';" +
+                          "}catch(e){}})();",
+                          null
+                      );
                       syncNativeAuthToken();
                       NotificationScheduler.runNow(MainActivity.this);
                   }
@@ -857,29 +865,27 @@ jobs:
           EOF
           sed -i 's/^          //' "$PKG_DIR/MainActivity.java"
 
-      - name: Generate NEW signing key
+      - name: Reuse v2.0.0 signing key
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p signing-backup
-          PASS="$(openssl rand -hex 24)"
-          ALIAS="escala-mobile"
+          gh run download 36803359446 -n ESCALA-DE-PROPOSITO-MOBILE-SIGNING-BACKUP -D signing-backup
           KEYSTORE="$GITHUB_WORKSPACE/signing-backup/Escala-de-Proposito-Mobile-v2.jks"
-          keytool -genkeypair -v             -keystore "$KEYSTORE"             -storepass "$PASS"             -keypass "$PASS"             -alias "$ALIAS"             -keyalg RSA -keysize 4096 -validity 10000             -dname "CN=Escala de Proposito Mobile, OU=Inacio Labs, O=Inacio Labs, L=Ouvidor, ST=Goias, C=BR"
+          INFO="$GITHUB_WORKSPACE/signing-backup/LEIA-ME-CHAVE.txt"
+          test -s "$KEYSTORE"
+          test -s "$INFO"
+          ALIAS="$(sed -n 's/^Alias: //p' "$INFO" | head -n1)"
+          STORE_PASS="$(sed -n 's/^Store password: //p' "$INFO" | head -n1)"
+          KEY_PASS="$(sed -n 's/^Key password: //p' "$INFO" | head -n1)"
+          test -n "$ALIAS"
+          test -n "$STORE_PASS"
+          test -n "$KEY_PASS"
           echo "ESCALA_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
-          echo "ESCALA_STORE_PASS=$PASS" >> "$GITHUB_ENV"
-          echo "ESCALA_KEY_PASS=$PASS" >> "$GITHUB_ENV"
+          echo "ESCALA_STORE_PASS=$STORE_PASS" >> "$GITHUB_ENV"
+          echo "ESCALA_KEY_PASS=$KEY_PASS" >> "$GITHUB_ENV"
           echo "ESCALA_KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
-
-          {
-            echo "ESCALA DE PROPOSITO MOBILE - BACKUP DA ASSINATURA"
-            echo
-            echo "Pacote: br.com.inaciolabs.escaladeproposito.mobile"
-            echo "Alias: $ALIAS"
-            echo "Store password: $PASS"
-            echo "Key password: $PASS"
-            echo
-            echo "GUARDE ESTE ARQUIVO E A CHAVE JKS. Sem esta chave, futuras atualizacoes nao instalam por cima deste novo app."
-          } > signing-backup/LEIA-ME-CHAVE.txt
 
       - name: Build signed APK and AAB
         working-directory: android-mobile-v2
@@ -903,13 +909,13 @@ jobs:
           "$AAPT" dump badging "$APK" | tee APK-BADGING.txt
           grep -Fq "package: name='br.com.inaciolabs.escaladeproposito.mobile'" APK-BADGING.txt
           grep -Fq "application-label:'Escala de Propósito'" APK-BADGING.txt
-          grep -Fq "versionName='2.0.0'" APK-BADGING.txt
+          grep -Fq "versionName='2.0.1'" APK-BADGING.txt
 
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee APK-SIGNATURE.txt
           grep -Fq 'Verified' APK-SIGNATURE.txt
 
           grep -Fq 'https://escaladeproposito.com.br/?__app=1'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
-          grep -Fq 'EscalaDePropositoAndroid/2.0.0'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
+          grep -Fq 'EscalaDePropositoAndroid/2.0.1'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
           grep -Fq 'app-pending.php'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/NotificationPoller.java
 
           test "$(wc -c < android-mobile-v2/app/src/main/res/drawable/ic_launcher.png)" -gt 10000
@@ -920,25 +926,25 @@ jobs:
       - name: Prepare deliverables
         run: |
           set -euo pipefail
-          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.0.apk
-          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.0.aab
-          sha256sum Escala-de-Proposito-Mobile-v2.0.0.apk             Escala-de-Proposito-Mobile-v2.0.0.aab > SHA256-ANDROID-MOBILE-v2.0.0.txt
+          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.1.apk
+          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.1.aab
+          sha256sum Escala-de-Proposito-Mobile-v2.0.1.apk             Escala-de-Proposito-Mobile-v2.0.1.aab > SHA256-ANDROID-MOBILE-v2.0.1.txt
 
       - name: Publish Android v2 release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release delete android-mobile-v2.0.0 --yes --cleanup-tag 2>/dev/null || true
-          gh release create android-mobile-v2.0.0             Escala-de-Proposito-Mobile-v2.0.0.apk             Escala-de-Proposito-Mobile-v2.0.0.aab             SHA256-ANDROID-MOBILE-v2.0.0.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.0'             --notes 'Novo aplicativo Android separado. Pacote: br.com.inaciolabs.escaladeproposito.mobile. Assinatura nova. Abre https://escaladeproposito.com.br/?__app=1, usa o visual atual da plataforma, ícone oficial, GPS, downloads, deep links e notificações nativas com som/vibração/badge. Pode coexistir com o app antigo.'
+          gh release delete android-mobile-v2.0.1 --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-mobile-v2.0.1             Escala-de-Proposito-Mobile-v2.0.1.apk             Escala-de-Proposito-Mobile-v2.0.1.aab             SHA256-ANDROID-MOBILE-v2.0.1.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.1'             --notes 'Atualização Mobile v2.0.1. Mantém o pacote br.com.inaciolabs.escaladeproposito.mobile e a mesma assinatura da v2.0.0. Corrige margens duplicadas no topo/rodapé, melhora o aproveitamento da tela e mantém domínio oficial, ícone, GPS, downloads, deep links e notificações nativas.'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Escala-de-Proposito-Mobile-v2.0.0
+          name: Escala-de-Proposito-Mobile-v2.0.1
           path: |
-            Escala-de-Proposito-Mobile-v2.0.0.apk
-            Escala-de-Proposito-Mobile-v2.0.0.aab
-            SHA256-ANDROID-MOBILE-v2.0.0.txt
+            Escala-de-Proposito-Mobile-v2.0.1.apk
+            Escala-de-Proposito-Mobile-v2.0.1.aab
+            SHA256-ANDROID-MOBILE-v2.0.1.txt
             APK-SIGNATURE.txt
             ICON-SHA256.txt
           retention-days: 90
