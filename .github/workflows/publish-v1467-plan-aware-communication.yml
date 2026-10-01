@@ -1,0 +1,72 @@
+name: Publish Escala de Proposito v1.4.67 Plan Aware Communication
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1467-plan-aware-communication.yml'
+      - 'scripts/patch-v1467-plan-aware-communication.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.66 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.66 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'ddc6e9393c2586fb11e21bbd8510176ec16d747f12731ba55e7d142433378baf  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.66"
+
+      - name: Apply v1.4.67
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1467-plan-aware-communication.py
+
+      - name: Validate v1.4.67
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.67"
+          node --check pkg/plan-feature-guard-v1467.js
+          grep -Fq 'Notificar pelo app' pkg/plan-feature-guard-v1467.js
+          grep -Fq 'Lembrete pelo app' pkg/plan-feature-guard-v1467.js
+          grep -Fq 'Reenviar notificação' pkg/plan-feature-guard-v1467.js
+          grep -Fq 'Comunicação pelo aplicativo' pkg/plan-feature-guard-v1467.js
+          grep -Fq 'plan-feature-guard-v1467.js?v=1.4.67' pkg/sistema.html
+          ! grep -Fq 'plan-feature-guard-v1465.js?v=1.4.65' pkg/sistema.html
+          grep -Fq 'Igrejas com WhatsApp continuam' pkg/ATUALIZACAO-v1.4.67.md
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.67.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.67.txt
+
+      - name: Publish v1.4.67
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.67 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.67             escala-de-proposito-cpanel.zip             escalastop-cpanel.zip             SHA256-v1.4.67.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito v1.4.67'             --notes-file pkg/ATUALIZACAO-v1.4.67.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.67
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.67.txt
+          retention-days: 30
