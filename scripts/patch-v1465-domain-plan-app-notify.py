@@ -62,8 +62,9 @@ p.write_text(h,encoding='utf-8')
 p=root/'api'/'billing-master-v1314.php'
 php=p.read_text(encoding='utf-8')
 
-old="function cm_app_url(): string {\n    global $config;\n    $u=rtrim((string)($config['app_url']??''),'/');"
-new="function cm_app_url(): string {\n    global $config;\n    $saved=rtrim(trim((string)cm_cfg('system_public_url','')),'/');\n    if($saved!==''&&preg_match('#^https://#i',$saved))return $saved;\n    $u=rtrim((string)($config['app_url']??''),'/');"
+old="function cm_app_url(): string {"
+new="function cm_app_url(): string {\n    $saved=rtrim(trim((string)cm_cfg('system_public_url','')),'/');\n    if($saved!==''&&preg_match('#^https://#i',$saved))return $saved;"
+
 php=one(php,old,new,'cm app url')
 
 old="    cm_schema();\n    $req=input_json();"
@@ -107,8 +108,9 @@ p.write_text(php,encoding='utf-8')
 # 4) Biblioteca de cobrança: domínio oficial também é usado no checkout.
 p=root/'api'/'billing_lib_v1313.php'
 lib=p.read_text(encoding='utf-8')
-old="function billing_app_url(): string {\n    global $config;\n    $u=rtrim((string)($config['app_url']??''),'/');"
-new="function billing_app_url(): string {\n    global $config;\n    $saved=rtrim(trim((string)(billing_cfg('system_public_url','')??'')),'/');\n    if($saved!==''&&preg_match('#^https://#i',$saved))return $saved;\n    $u=rtrim((string)($config['app_url']??''),'/');"
+old="function billing_app_url(): string {"
+new="function billing_app_url(): string {\n    $saved=rtrim(trim((string)(billing_cfg('system_public_url','')??'')),'/');\n    if($saved!==''&&preg_match('#^https://#i',$saved))return $saved;"
+
 lib=one(lib,old,new,'billing app url')
 p.write_text(lib,encoding='utf-8')
 
