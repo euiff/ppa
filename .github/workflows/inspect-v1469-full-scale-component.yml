@@ -1,0 +1,42 @@
+name: Inspect v1.4.69 full scale component
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v1469-full-scale-component.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.4.69
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.69 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+      - name: Print mG component
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=next(Path('pkg/assets').glob('index-*.js'))
+          s=p.read_text(encoding='utf-8')
+          for needle in ['mG=()=>','mG=','Escala completa do dia','Adicionar departamento','Salvar alterações','Voltar para escalas']:
+              print('\n===== '+needle+' =====')
+              start=0; shown=0
+              while shown<15:
+                  i=s.find(needle,start)
+                  if i<0: break
+                  print('INDEX',i)
+                  print(s[max(0,i-2600):min(len(s),i+7000)])
+                  print('\n---')
+                  start=i+len(needle); shown+=1
+          PY
