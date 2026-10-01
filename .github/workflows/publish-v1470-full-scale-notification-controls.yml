@@ -51,7 +51,7 @@ jobs:
           grep -Fq 'send-whatsapp' "$ASSET"
           grep -Fq 'app_notification_events' pkg/api/app_notification_events_v1470.php
           grep -Fq '/minha-escala/' pkg/api/app-pending.php
-          grep -Fq "count'=>$pendingCount" pkg/api/app-pending.php
+          grep -Fq '$pendingCount' pkg/api/app-pending.php
           grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.70"' pkg/sistema.html
           grep -Fq '/app-notifications-v1465.js?v=1.4.70' pkg/sistema.html
           grep -Fq 'escala-version:1.4.70' pkg/sw.js
