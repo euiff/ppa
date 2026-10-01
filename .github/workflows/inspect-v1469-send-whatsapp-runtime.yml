@@ -1,0 +1,31 @@
+name: Inspect v1.4.69 send whatsapp runtime
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v1469-send-whatsapp-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.4.69
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.69 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+      - name: Inspect send whatsapp
+        run: |
+          set -euo pipefail
+          echo '=== files ==='
+          find pkg/api -maxdepth 2 -type f | grep -Ei 'whatsapp|function' | sort | head -n 120
+          echo '=== functions handler ==='
+          grep -RInE --include='*.php' "send-whatsapp|escala_item_id|force_resend" pkg/api | head -n 220 || true
