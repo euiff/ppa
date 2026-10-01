@@ -58,50 +58,41 @@ systemUrl?.addEventListener('change',()=>{try{let u=systemUrl.value.trim().repla
 h=h.replace('</script>',hook+'\n</script>',1)
 p.write_text(h,encoding='utf-8')
 
-# 3) API comercial: salva domínio e flags dos planos.
+# 3) API comercial oficial v1.4.64: domínio e flags dos planos.
 p=root/'api'/'billing-master-v1314.php'
 php=p.read_text(encoding='utf-8')
 
-pat_url=re.compile(r"function\\s+cm_app_url\\s*\\(\\s*\\)\\s*(?::\\s*string)?\\s*\\{")
-php,n=pat_url.subn(lambda m:m.group(0)+"\\n    $saved=rtrim(trim((string)cm_cfg(\'system_public_url\',\'\')),\'/\');\\n    if($saved!==\'\'&&preg_match(\'#^https://#i\',$saved))return $saved;",php,count=1)
-if n!=1: raise SystemExit('cm app url: function not found')
-
-old="    cm_schema();\n    $req=input_json();"
-new="    cm_schema();\n    try{cm_add_col('saas_plans','whatsapp_enabled',\"TINYINT(1) NOT NULL DEFAULT 1\");}catch(Throwable $e){}\n    try{cm_add_col('saas_plans','app_notifications_enabled',\"TINYINT(1) NOT NULL DEFAULT 1\");}catch(Throwable $e){}\n    $req=input_json();"
+old="billing_v1314_ensure_schema();$req=input_json();$action=(string)($req['action']??($_SERVER['REQUEST_METHOD']==='GET'?'get':'get'));"
+new="billing_v1314_ensure_schema();try{billing_add_col('saas_plans','whatsapp_enabled',\"TINYINT(1) NOT NULL DEFAULT 1\");}catch(Throwable $e){}try{billing_add_col('saas_plans','app_notifications_enabled',\"TINYINT(1) NOT NULL DEFAULT 1\");}catch(Throwable $e){}$req=input_json();$action=(string)($req['action']??($_SERVER['REQUEST_METHOD']==='GET'?'get':'get'));"
 php=one(php,old,new,'feature schema')
 
-old="      'sales_email'=>cm_cfg('saas_sales_email',''),\n      'mercadopago_access_token_masked'=>cm_mask($access),"
-new="      'sales_email'=>cm_cfg('saas_sales_email',''),\n      'system_public_url'=>cm_app_url(),\n      'mercadopago_webhook_url'=>cm_cfg('mercadopago_webhook_url',cm_app_url().'/api/mercadopago-webhook.php'),\n      'saas_sales_url'=>cm_cfg('saas_sales_url',cm_app_url().'/'),\n      'mercadopago_access_token_masked'=>cm_mask($access),"
-php=one(php,old,new,'commercial response urls')
+old="    billing_set_cfg('saas_sales_email',trim((string)($req['sales_email']??'')));"
+new="""    billing_set_cfg('saas_sales_email',trim((string)($req['sales_email']??'')));
+    $publicUrl=rtrim(trim((string)($req['system_public_url']??'')),'/');
+    if($publicUrl===''||!preg_match('#^https://[a-z0-9.-]+(?::[0-9]+)?(?:/.*)?$#i',$publicUrl))throw new RuntimeException('Informe um domínio HTTPS válido.');
+    $webhook=trim((string)($req['mercadopago_webhook_url']??''));
+    $sales=trim((string)($req['saas_sales_url']??''));
+    if($webhook===''||!preg_match('#^https://#i',$webhook))$webhook=$publicUrl.'/api/mercadopago-webhook.php';
+    if($sales===''||!preg_match('#^https://#i',$sales))$sales=$publicUrl.'/';
+    billing_set_cfg('system_public_url',$publicUrl);
+    billing_set_cfg('mercadopago_webhook_url',$webhook);
+    billing_set_cfg('saas_sales_url',$sales);"""
+php=one(php,old,new,'commercial save URLs')
 
-old="      'webhook_url'=>cm_app_url().'/api/mercadopago-webhook.php',\n      'sales_url'=>cm_app_url().'/',"
-new="      'webhook_url'=>cm_cfg('mercadopago_webhook_url',cm_app_url().'/api/mercadopago-webhook.php'),\n      'sales_url'=>cm_cfg('saas_sales_url',cm_app_url().'/'),"
-php=one(php,old,new,'commercial displayed urls')
+old="    $st->execute([$id,$nome,trim((string)($req['descricao']??'')),max(1,(float)($req['preco']??1)),max(1,(int)($req['duracao_dias']??30)),!empty($req['ativo'])?1:0,!empty($req['destaque'])?1:0,(int)($req['ordem']??0)]);"
+new=old+"\n    db()->prepare(\"UPDATE saas_plans SET whatsapp_enabled=?,app_notifications_enabled=? WHERE id=?\")->execute([!empty($req['whatsapp_enabled'])?1:0,!empty($req['app_notifications_enabled'])?1:0,$id]);"
+php=one(php,old,new,'plan feature save')
 
-old="            cm_set_cfg('saas_sales_email',trim((string)($req['sales_email']??'')));\n            cm_set_cfg('mercadopago_public_key'"
-new="""            cm_set_cfg('saas_sales_email',trim((string)($req['sales_email']??'')));
-            $publicUrl=rtrim(trim((string)($req['system_public_url']??'')),'/');
-            if($publicUrl===''||!preg_match('#^https://[a-z0-9.-]+(?::[0-9]+)?(?:/.*)?$#i',$publicUrl))throw new RuntimeException('Informe um domínio HTTPS válido.');
-            $webhook=trim((string)($req['mercadopago_webhook_url']??''));
-            $sales=trim((string)($req['saas_sales_url']??''));
-            if($webhook===''||!preg_match('#^https://#i',$webhook))$webhook=$publicUrl.'/api/mercadopago-webhook.php';
-            if($sales===''||!preg_match('#^https://#i',$sales))$sales=$publicUrl.'/';
-            cm_set_cfg('system_public_url',$publicUrl);
-            cm_set_cfg('mercadopago_webhook_url',$webhook);
-            cm_set_cfg('saas_sales_url',$sales);
-            cm_set_cfg('mercadopago_public_key'"""
-if old not in php:
-    raise SystemExit('save settings url anchor missing')
-php=php.replace(old,new,1)
+old="  'stats'=>$stats,'trial_days'=>billing_trial_days(),'sales_whatsapp'=>billing_cfg('saas_sales_whatsapp',''),'sales_email'=>billing_cfg('saas_sales_email',''),"
+new="  'stats'=>$stats,'trial_days'=>billing_trial_days(),'sales_whatsapp'=>billing_cfg('saas_sales_whatsapp',''),'sales_email'=>billing_cfg('saas_sales_email',''),'system_public_url'=>billing_app_url(),'mercadopago_webhook_url'=>billing_cfg('mercadopago_webhook_url',billing_app_url().'/api/mercadopago-webhook.php'),'saas_sales_url'=>billing_cfg('saas_sales_url',billing_app_url().'/'),"
+php=one(php,old,new,'commercial response URLs')
 
-pat=re.compile(r"(\$id=cm_insert_plan\(\[.*?\n\s*\]\);)",re.S)
-m=pat.search(php)
-if not m:
-    raise SystemExit('save_plan insert block not found')
-block=m.group(1)
-if "whatsapp_enabled" not in block:
-    add=block+"\n            db()->prepare(\"UPDATE saas_plans SET whatsapp_enabled=?,app_notifications_enabled=? WHERE id=?\")->execute([!empty($req['whatsapp_enabled'])?1:0,!empty($req['app_notifications_enabled'])?1:0,$id]);"
-    php=php[:m.start()]+add+php[m.end():]
+old="  'mercadopago_webhook_secret_masked'=>v1314_mask($secret),'mercadopago_webhook_secret_configured'=>$secret!=='','webhook_url'=>billing_app_url().'/api/mercadopago-webhook.php',"
+new="  'mercadopago_webhook_secret_masked'=>v1314_mask($secret),'mercadopago_webhook_secret_configured'=>$secret!=='','webhook_url'=>billing_cfg('mercadopago_webhook_url',billing_app_url().'/api/mercadopago-webhook.php'),"
+php=one(php,old,new,'commercial webhook display')
+old="  'sales_url'=>billing_app_url().'/','plans'=>$plans,'promotions'=>$promos,'churches'=>$churches,'orders'=>$orders,'users'=>$users"
+new="  'sales_url'=>billing_cfg('saas_sales_url',billing_app_url().'/'),'plans'=>$plans,'promotions'=>$promos,'churches'=>$churches,'orders'=>$orders,'users'=>$users"
+php=one(php,old,new,'commercial sales display')
 p.write_text(php,encoding='utf-8')
 
 # 4) Biblioteca de cobrança: domínio oficial também é usado no checkout.
