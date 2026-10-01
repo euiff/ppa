@@ -1,0 +1,83 @@
+name: Publish Escala de Proposito v1.4.69 Direct Complete New Domain Links
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1469-direct-complete-new-domain-links.yml'
+      - 'scripts/patch-v1469-direct-complete-new-domain-links.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.68 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.68 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'd412f6b17c758af3b288c1d0500951213e992118c78506d2442ae78d2f311aea  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.68"
+
+      - name: Apply v1.4.69
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1469-direct-complete-new-domain-links.py
+
+      - name: Validate v1.4.69
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.69"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+          node --check "$ASSET"
+          php -l pkg/api/whatsapp_scale_message_v1421.php
+          php -l pkg/api/volunteer_menu_v1434.php
+          php -l pkg/api/volunteer_menu_v1435.php
+
+          grep -Fq 'if(y&&pe){window.location.replace("/escala/"+encodeURIComponent(pe.id));return null}' "$ASSET"
+          ! grep -Fq 'return r.jsx(fG,{escala:pe,voluntarios:g' "$ASSET"
+
+          grep -Fq 'https://escaladeproposito.com.br' pkg/api/whatsapp_scale_message_v1421.php
+          grep -Fq 'https://escaladeproposito.com.br' pkg/api/volunteer_menu_v1434.php
+          grep -Fq 'https://escaladeproposito.com.br' pkg/api/volunteer_menu_v1435.php
+          ! grep -Fq 'https://escala.isaacanthony.com.br' pkg/api/whatsapp_scale_message_v1421.php
+          ! grep -Fq 'https://escala.isaacanthony.com.br' pkg/api/volunteer_menu_v1434.php
+          ! grep -Fq 'https://escala.isaacanthony.com.br' pkg/api/volunteer_menu_v1435.php
+
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.69"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.69' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.69.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.69.txt
+
+      - name: Publish v1.4.69
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.69 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.69             escala-de-proposito-cpanel.zip             escalastop-cpanel.zip             SHA256-v1.4.69.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito v1.4.69'             --notes-file pkg/ATUALIZACAO-v1.4.69.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.69
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.69.txt
+          retention-days: 30
