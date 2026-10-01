@@ -1,0 +1,37 @@
+name: Inspect deployed PWA icon
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-deployed-pwa-icon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect deployed manifest and icons
+        run: |
+          set -euo pipefail
+          for u in             https://escaladeproposito.com.br/manifest.webmanifest             https://escaladeproposito.com.br/manifest.json             https://escaladeproposito.com.br/site.webmanifest; do
+            echo "===== $u ====="
+            if curl -fsSL "$u" -o /tmp/manifest; then
+              cat /tmp/manifest
+              echo
+            fi
+          done
+          echo "===== homepage icon links ====="
+          curl -fsSL https://escaladeproposito.com.br/ -o /tmp/home.html
+          grep -Eoi '<link[^>]+(icon|manifest)[^>]*>' /tmp/home.html || true
+          echo "===== candidate icon files ====="
+          for p in             /icon-512.png /icon-512x512.png /icons/icon-512.png /icons/icon-512x512.png             /icone-512x512.png /pwa-512x512.png /android-chrome-512x512.png             /favicon.png /favicon.ico; do
+            code=$(curl -L -s -o /tmp/icon --write-out '%{http_code}' "https://escaladeproposito.com.br$p")
+            if [ "$code" = "200" ]; then
+              echo "$p HTTP 200 size=$(wc -c </tmp/icon) sha256=$(sha256sum /tmp/icon | awk '{print $1}')"
+              file /tmp/icon || true
+            fi
+          done
