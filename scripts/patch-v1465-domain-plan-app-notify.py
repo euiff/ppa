@@ -98,9 +98,9 @@ p.write_text(php,encoding='utf-8')
 # 4) Biblioteca de cobrança: domínio oficial também é usado no checkout.
 p=root/'api'/'billing_lib_v1313.php'
 lib=p.read_text(encoding='utf-8')
-pat_burl=re.compile(r"function\\s+billing_app_url\\s*\\(\\s*\\)\\s*(?::\\s*string)?\\s*\\{")
-lib,n=pat_burl.subn(lambda m:m.group(0)+"\\n    $saved=rtrim(trim((string)(billing_cfg(\'system_public_url\',\'\')??\'\')),\'/\');\\n    if($saved!==\'\'&&preg_match(\'#^https://#i\',$saved))return $saved;",lib,count=1)
-if n!=1: raise SystemExit('billing app url: function not found')
+old="function billing_app_url(): string {\n"
+new="function billing_app_url(): string {\n    $saved=rtrim(trim((string)(billing_cfg(\'system_public_url\',\'\')??\'\')),\'/\');\n    if($saved!==\'\'&&preg_match(\'#^https://#i\',$saved))return $saved;\n"
+lib=one(lib,old,new,'billing app url')
 p.write_text(lib,encoding='utf-8')
 
 p=root/'api'/'billing-checkout.php'
