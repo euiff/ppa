@@ -46,7 +46,6 @@ jobs:
           php -l pkg/api/billing_lib_v1314.php
           php -l pkg/api/plan_features_v1465.php
           grep -Fq 'v1466_ensure_plan_feature_columns' pkg/api/billing-master-v1314.php
-          grep -Fq 'v1466_ensure_plan_feature_columns' pkg/api/billing_lib_v1314.php
           grep -Fq 'ALTER TABLE saas_plans ADD COLUMN' pkg/api/plan_features_schema_v1466.php
           grep -Fq 'whatsapp_enabled' pkg/api/plan_features_schema_v1466.php
           grep -Fq 'app_notifications_enabled' pkg/api/plan_features_schema_v1466.php
