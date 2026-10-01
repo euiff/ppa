@@ -63,17 +63,6 @@ if old not in s:
 s=s.replace(old,new,1)
 p.write_text(s,encoding='utf-8')
 
-p=root/'api'/'billing_lib_v1314.php'
-s=p.read_text(encoding='utf-8')
-if "plan_features_schema_v1466.php" not in s:
-    s=s.replace("require_once __DIR__.'/billing_lib_v1313.php';","require_once __DIR__.'/billing_lib_v1313.php';\nrequire_once __DIR__.'/plan_features_schema_v1466.php';",1)
-old="function billing_v1314_ensure_schema(): void {\n    billing_ensure_schema();\n    $pdo=db();"
-new="function billing_v1314_ensure_schema(): void {\n    billing_ensure_schema();\n    $pdo=db();\n    v1466_ensure_plan_feature_columns();"
-if old not in s:
-    raise SystemExit('billing schema anchor not found')
-s=s.replace(old,new,1)
-p.write_text(s,encoding='utf-8')
-
 mig=root/'database'/'migrations'/'20261001_1466_plan_features.sql'
 mig.parent.mkdir(parents=True,exist_ok=True)
 mig.write_text("""-- Escala de Proposito v1.4.66
