@@ -1,0 +1,950 @@
+name: Build Escala de Proposito Mobile v2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-android-mobile-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Create Android project
+        run: |
+          set -euo pipefail
+          PKG_DIR=android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile
+          mkdir -p "$PKG_DIR"
+          mkdir -p android-mobile-v2/app/src/main/res/values
+          mkdir -p android-mobile-v2/app/src/main/res/drawable
+
+          cat > android-mobile-v2/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "EscalaDePropositoMobile"
+          include(":app")
+          EOF
+          sed -i 's/^          //' android-mobile-v2/settings.gradle
+
+          cat > android-mobile-v2/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+          sed -i 's/^          //' android-mobile-v2/build.gradle
+
+          cat > android-mobile-v2/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          EOF
+          sed -i 's/^          //' android-mobile-v2/gradle.properties
+
+          cat > android-mobile-v2/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'br.com.inaciolabs.escaladeproposito.mobile'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'br.com.inaciolabs.escaladeproposito.mobile'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 200
+                  versionName '2.0.0'
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv('ESCALA_KEYSTORE'))
+                      storePassword System.getenv('ESCALA_STORE_PASS')
+                      keyAlias System.getenv('ESCALA_KEY_ALIAS')
+                      keyPassword System.getenv('ESCALA_KEY_PASS')
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                      shrinkResources false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/build.gradle
+
+          cat > android-mobile-v2/app/proguard-rules.pro <<'EOF'
+          -keepclassmembers class * {
+              @android.webkit.JavascriptInterface <methods>;
+          }
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/proguard-rules.pro
+
+          cat > android-mobile-v2/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+              <application
+                  android:allowBackup="true"
+                  android:usesCleartextTraffic="false"
+                  android:icon="@drawable/ic_launcher"
+                  android:roundIcon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="https" android:host="escaladeproposito.com.br" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".NotificationJobService"
+                      android:permission="android.permission.BIND_JOB_SERVICE"
+                      android:exported="false" />
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:enabled="true"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                      </intent-filter>
+                  </receiver>
+              </application>
+          </manifest>
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/src/main/AndroidManifest.xml
+
+          cat > android-mobile-v2/app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Escala de Propósito</string>
+              <string name="notification_channel_name">Escalas e lembretes</string>
+              <string name="notification_channel_description">Avisos de escala, confirmação e lembretes ministeriais</string>
+          </resources>
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/src/main/res/values/strings.xml
+
+          cat > android-mobile-v2/app/src/main/res/values/colors.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="brand_primary">#3730A3</color>
+              <color name="brand_primary_dark">#161B42</color>
+          </resources>
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/src/main/res/values/colors.xml
+
+          cat > android-mobile-v2/app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">@color/brand_primary</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">@color/brand_primary_dark</item>
+                  <item name="android:navigationBarColor">@color/brand_primary_dark</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:windowNoTitle">true</item>
+              </style>
+          </resources>
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/src/main/res/values/styles.xml
+
+          cat > android-mobile-v2/app/src/main/res/drawable/ic_notification.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#FFFFFFFF"
+                  android:pathData="M7,3h10a2,2 0,0 1,2 2v14a2,2 0,0 1,-2 2H7a2,2 0,0 1,-2 -2V5a2,2 0,0 1,2 -2zM9.1,8.9l1.4,1.4 3.7,-3.7 1.4,1.4 -5.1,5.1 -2.8,-2.8zM9.1,15.9l1.4,1.4 3.7,-3.7 1.4,1.4 -5.1,5.1 -2.8,-2.8z" />
+          </vector>
+          EOF
+          sed -i 's/^          //' android-mobile-v2/app/src/main/res/drawable/ic_notification.xml
+
+          # Ícone oficial publicado pelo próprio domínio.
+          curl -fsSL https://escaladeproposito.com.br/icon-512.png             -o android-mobile-v2/app/src/main/res/drawable/ic_launcher.png
+          file android-mobile-v2/app/src/main/res/drawable/ic_launcher.png
+          test "$(wc -c < android-mobile-v2/app/src/main/res/drawable/ic_launcher.png)" -gt 10000
+
+          cat > "$PKG_DIR/NotificationScheduler.java" <<'EOF'
+          package br.com.inaciolabs.escaladeproposito.mobile;
+
+          import android.app.job.JobInfo;
+          import android.app.job.JobScheduler;
+          import android.content.ComponentName;
+          import android.content.Context;
+          import android.os.Build;
+
+          public final class NotificationScheduler {
+              private static final int PERIODIC_JOB_ID = 147001;
+              private static final int NOW_JOB_ID = 147002;
+              private static final long PERIOD_MS = 15L * 60L * 1000L;
+
+              private NotificationScheduler() {}
+
+              public static void schedule(Context context) {
+                  JobScheduler js = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+                  if (js == null) return;
+                  ComponentName service = new ComponentName(context, NotificationJobService.class);
+                  JobInfo.Builder b = new JobInfo.Builder(PERIODIC_JOB_ID, service)
+                          .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                          .setPersisted(true);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                      b.setPeriodic(PERIOD_MS, 5L * 60L * 1000L);
+                  } else {
+                      b.setPeriodic(PERIOD_MS);
+                  }
+                  js.schedule(b.build());
+              }
+
+              public static void runNow(Context context) {
+                  JobScheduler js = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+                  if (js == null) return;
+                  ComponentName service = new ComponentName(context, NotificationJobService.class);
+                  JobInfo info = new JobInfo.Builder(NOW_JOB_ID, service)
+                          .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                          .setMinimumLatency(0)
+                          .setOverrideDeadline(5000)
+                          .build();
+                  js.schedule(info);
+              }
+          }
+          EOF
+          sed -i 's/^          //' "$PKG_DIR/NotificationScheduler.java"
+
+          cat > "$PKG_DIR/NotificationJobService.java" <<'EOF'
+          package br.com.inaciolabs.escaladeproposito.mobile;
+
+          import android.app.job.JobParameters;
+          import android.app.job.JobService;
+
+          public class NotificationJobService extends JobService {
+              @Override
+              public boolean onStartJob(JobParameters params) {
+                  new Thread(() -> {
+                      try {
+                          NotificationPoller.poll(getApplicationContext());
+                      } finally {
+                          jobFinished(params, false);
+                      }
+                  }, "EscalaNotificationPoll").start();
+                  return true;
+              }
+
+              @Override
+              public boolean onStopJob(JobParameters params) {
+                  return true;
+              }
+          }
+          EOF
+          sed -i 's/^          //' "$PKG_DIR/NotificationJobService.java"
+
+          cat > "$PKG_DIR/BootReceiver.java" <<'EOF'
+          package br.com.inaciolabs.escaladeproposito.mobile;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+
+          public class BootReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  NotificationScheduler.schedule(context);
+                  NotificationScheduler.runNow(context);
+              }
+          }
+          EOF
+          sed -i 's/^          //' "$PKG_DIR/BootReceiver.java"
+
+          cat > "$PKG_DIR/NotificationPoller.java" <<'EOF'
+          package br.com.inaciolabs.escaladeproposito.mobile;
+
+          import android.Manifest;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+
+          import java.io.BufferedReader;
+          import java.io.InputStream;
+          import java.io.InputStreamReader;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.nio.charset.StandardCharsets;
+          import java.util.HashSet;
+          import java.util.Set;
+
+          public final class NotificationPoller {
+              public static final String PREFS = "escala_mobile_native";
+              public static final String TOKEN_KEY = "auth_token";
+              private static final String SEEN_KEY = "seen_notifications";
+              private static final String ENDPOINT = "https://escaladeproposito.com.br/api/app-pending.php";
+              private static final String CHANNEL_ID = "escala_alertas_v2";
+
+              private NotificationPoller() {}
+
+              public static void poll(Context context) {
+                  SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+                  String token = prefs.getString(TOKEN_KEY, "");
+                  if (token == null || token.trim().isEmpty()) return;
+
+                  HttpURLConnection conn = null;
+                  try {
+                      URL url = new URL(ENDPOINT);
+                      conn = (HttpURLConnection) url.openConnection();
+                      conn.setRequestMethod("GET");
+                      conn.setConnectTimeout(15000);
+                      conn.setReadTimeout(20000);
+                      conn.setRequestProperty("Authorization", "Bearer " + token);
+                      conn.setRequestProperty("Accept", "application/json");
+                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.0 NativeNotify");
+                      int code = conn.getResponseCode();
+                      InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
+                      if (stream == null) return;
+
+                      StringBuilder body = new StringBuilder();
+                      try (BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                          String line;
+                          while ((line = br.readLine()) != null) body.append(line);
+                      }
+                      if (code < 200 || code >= 300) return;
+
+                      JSONObject root = new JSONObject(body.toString());
+                      JSONObject data = root.optJSONObject("data");
+                      if (data == null || data.optBoolean("disabled", false)) return;
+                      JSONArray items = data.optJSONArray("items");
+                      if (items == null || items.length() == 0) return;
+
+                      int badgeCount = Math.max(1, data.optInt("count", items.length()));
+                      Set<String> seen = new HashSet<>(prefs.getStringSet(SEEN_KEY, new HashSet<>()));
+                      boolean changed = false;
+
+                      for (int i = 0; i < items.length(); i++) {
+                          JSONObject item = items.optJSONObject(i);
+                          if (item == null) continue;
+                          String id = item.optString("id", "");
+                          if (id.isEmpty() || seen.contains(id)) continue;
+
+                          if (showNotification(context, item, badgeCount)) {
+                              seen.add(id);
+                              changed = true;
+                          }
+                      }
+
+                      if (changed) {
+                          if (seen.size() > 600) seen.clear();
+                          prefs.edit().putStringSet(SEEN_KEY, seen).apply();
+                      }
+                  } catch (Exception ignored) {
+                  } finally {
+                      if (conn != null) conn.disconnect();
+                  }
+              }
+
+              private static boolean showNotification(Context context, JSONObject item, int badgeCount) {
+                  if (Build.VERSION.SDK_INT >= 33 &&
+                          context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                      return false;
+                  }
+
+                  NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm == null) return false;
+                  ensureChannel(context, nm);
+
+                  String id = item.optString("id", Long.toString(System.nanoTime()));
+                  String title = item.optString("title", "Escala de Propósito");
+                  String message = item.optString("message", "Você tem uma nova notificação de escala.");
+                  String path = item.optString("url", "/");
+
+                  Intent open = new Intent(context, MainActivity.class);
+                  open.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                  open.putExtra("open_url", path);
+                  int requestCode = id.hashCode() & 0x7fffffff;
+                  PendingIntent pi = PendingIntent.getActivity(
+                          context,
+                          requestCode,
+                          open,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                  );
+
+                  Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                          ? new Notification.Builder(context, CHANNEL_ID)
+                          : new Notification.Builder(context);
+
+                  b.setSmallIcon(R.drawable.ic_notification)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setStyle(new Notification.BigTextStyle().bigText(message))
+                          .setAutoCancel(true)
+                          .setContentIntent(pi)
+                          .setCategory(Notification.CATEGORY_REMINDER)
+                          .setVisibility(Notification.VISIBILITY_PUBLIC)
+                          .setNumber(badgeCount)
+                          .setColor(Color.rgb(55,48,163));
+
+                  if (Build.VERSION.SDK_INT < 26) {
+                      b.setPriority(Notification.PRIORITY_HIGH)
+                              .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE | Notification.DEFAULT_LIGHTS);
+                  }
+
+                  nm.notify(requestCode, b.build());
+                  return true;
+              }
+
+              private static void ensureChannel(Context context, NotificationManager nm) {
+                  if (Build.VERSION.SDK_INT < 26) return;
+                  NotificationChannel current = nm.getNotificationChannel(CHANNEL_ID);
+                  if (current != null) return;
+                  NotificationChannel c = new NotificationChannel(
+                          CHANNEL_ID,
+                          context.getString(R.string.notification_channel_name),
+                          NotificationManager.IMPORTANCE_HIGH
+                  );
+                  c.setDescription(context.getString(R.string.notification_channel_description));
+                  c.enableVibration(true);
+                  c.enableLights(true);
+                  c.setLightColor(Color.rgb(55,48,163));
+                  c.setShowBadge(true);
+                  c.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), null);
+                  nm.createNotificationChannel(c);
+              }
+          }
+          EOF
+          sed -i 's/^          //' "$PKG_DIR/NotificationPoller.java"
+
+          cat > "$PKG_DIR/MainActivity.java" <<'EOF'
+          package br.com.inaciolabs.escaladeproposito.mobile;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.app.DownloadManager;
+          import android.content.ActivityNotFoundException;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.net.http.SslError;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.view.WindowInsets;
+          import android.webkit.CookieManager;
+          import android.webkit.DownloadListener;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.SslErrorHandler;
+          import android.webkit.URLUtil;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.Toast;
+
+          import org.json.JSONTokener;
+
+          import java.util.Locale;
+
+          public class MainActivity extends Activity {
+              private static final String APP_URL = "https://escaladeproposito.com.br/?__app=1";
+              private static final String NEW_HOST = "escaladeproposito.com.br";
+              private static final int FILE_CHOOSER_REQUEST = 7001;
+              private static final int LOCATION_REQUEST = 7002;
+              private static final int NOTIFICATION_REQUEST = 7003;
+
+              private WebView webView;
+              private ValueCallback<Uri[]> filePathCallback;
+              private GeolocationPermissions.Callback pendingGeoCallback;
+              private String pendingGeoOrigin;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(Color.WHITE);
+                  webView = new WebView(this);
+                  root.addView(webView, new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                  ));
+                  setContentView(root);
+
+                  applySystemBarInsets(root);
+                  configureWebView();
+                  requestNotificationPermission();
+                  NotificationScheduler.schedule(this);
+
+                  if (savedInstanceState != null) {
+                      webView.restoreState(savedInstanceState);
+                  } else {
+                      loadInitialIntent(getIntent());
+                  }
+              }
+
+              private void requestNotificationPermission() {
+                  if (Build.VERSION.SDK_INT >= 33 &&
+                          checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
+                  }
+              }
+
+              private void loadInitialIntent(Intent intent) {
+                  String target = intent == null ? null : intent.getStringExtra("open_url");
+                  webView.loadUrl(normalizeInternalUrl(target));
+              }
+
+              private String normalizeInternalUrl(String target) {
+                  if (target == null || target.trim().isEmpty()) return APP_URL;
+                  try {
+                      Uri u = Uri.parse(target);
+                      if (u.getScheme() == null) {
+                          u = Uri.parse("https://" + NEW_HOST + (target.startsWith("/") ? target : "/" + target));
+                      }
+                      if (!isNewDomain(u.getHost())) return APP_URL;
+                      Uri.Builder b = u.buildUpon();
+                      if (u.getQueryParameter("__app") == null) b.appendQueryParameter("__app", "1");
+                      return b.build().toString();
+                  } catch (Exception e) {
+                      return APP_URL;
+                  }
+              }
+
+              @Override
+              protected void onNewIntent(Intent intent) {
+                  super.onNewIntent(intent);
+                  setIntent(intent);
+                  String target = intent.getStringExtra("open_url");
+                  if (webView != null) webView.loadUrl(normalizeInternalUrl(target));
+              }
+
+              private void applySystemBarInsets(View root) {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                      getWindow().setDecorFitsSystemWindows(false);
+                      root.setOnApplyWindowInsetsListener((v, insets) -> {
+                          android.graphics.Insets bars = insets.getInsets(
+                                  WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars()
+                          );
+                          v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                          return insets;
+                      });
+                      root.requestApplyInsets();
+                  } else {
+                      root.setFitsSystemWindows(true);
+                  }
+              }
+
+              private void configureWebView() {
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setGeolocationEnabled(true);
+                  settings.setLoadWithOverviewMode(false);
+                  settings.setUseWideViewPort(false);
+                  settings.setSupportZoom(false);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setAllowFileAccess(false);
+                  settings.setAllowContentAccess(true);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                      settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                  }
+                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.0 MobilePackage");
+
+                  CookieManager cookies = CookieManager.getInstance();
+                  cookies.setAcceptCookie(true);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                      cookies.setAcceptThirdPartyCookies(webView, true);
+                  }
+
+                  webView.setWebViewClient(new AppWebViewClient());
+                  webView.setWebChromeClient(new AppWebChromeClient());
+                  webView.setDownloadListener(new AppDownloadListener());
+                  webView.setBackgroundColor(Color.WHITE);
+                  webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+              }
+
+              private void syncNativeAuthToken() {
+                  if (webView == null) return;
+                  webView.evaluateJavascript(
+                          "(function(){try{return localStorage.getItem('escala-facil.auth-token')||''}catch(e){return ''}})()",
+                          value -> {
+                              try {
+                                  Object decoded = new JSONTokener(value).nextValue();
+                                  String token = decoded == null ? "" : decoded.toString();
+                                  if (!token.trim().isEmpty()) {
+                                      SharedPreferences p = getSharedPreferences(NotificationPoller.PREFS, MODE_PRIVATE);
+                                      String old = p.getString(NotificationPoller.TOKEN_KEY, "");
+                                      p.edit().putString(NotificationPoller.TOKEN_KEY, token).apply();
+                                      NotificationScheduler.schedule(this);
+                                      if (!token.equals(old)) NotificationScheduler.runNow(this);
+                                  }
+                              } catch (Exception ignored) {}
+                          }
+                  );
+              }
+
+              private boolean isNewDomain(String host) {
+                  if (host == null) return false;
+                  String h = host.toLowerCase(Locale.ROOT);
+                  return h.equals(NEW_HOST) || h.equals("www." + NEW_HOST);
+              }
+
+              private boolean isOldDomain(String host) {
+                  if (host == null) return false;
+                  String h = host.toLowerCase(Locale.ROOT);
+                  return h.equals("escala.isaacanthony.com.br")
+                          || h.equals("www.isaacanthony.com.br")
+                          || h.equals("topescalas.vercel.app");
+              }
+
+              private String migrateOldUrl(Uri uri) {
+                  return uri.buildUpon().scheme("https").authority(NEW_HOST).build().toString();
+              }
+
+              private void openExternal(Uri uri) {
+                  try {
+                      startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                  } catch (ActivityNotFoundException e) {
+                      Toast.makeText(this, "Não foi possível abrir este link.", Toast.LENGTH_SHORT).show();
+                  }
+              }
+
+              private class AppWebViewClient extends WebViewClient {
+                  @Override
+                  public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                      return handleUri(view, request.getUrl());
+                  }
+
+                  @Override
+                  public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                      return handleUri(view, Uri.parse(url));
+                  }
+
+                  private boolean handleUri(WebView view, Uri uri) {
+                      String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+                      String host = uri.getHost();
+
+                      if ("https".equals(scheme) || "http".equals(scheme)) {
+                          if (isOldDomain(host)) {
+                              view.loadUrl(migrateOldUrl(uri));
+                              return true;
+                          }
+                          if (isNewDomain(host)) return false;
+                          openExternal(uri);
+                          return true;
+                      }
+
+                      if ("tel".equals(scheme) || "mailto".equals(scheme) || "sms".equals(scheme)
+                              || "whatsapp".equals(scheme) || "intent".equals(scheme)) {
+                          openExternal(uri);
+                          return true;
+                      }
+                      return false;
+                  }
+
+                  @Override
+                  public void onPageFinished(WebView view, String url) {
+                      super.onPageFinished(view, url);
+                      syncNativeAuthToken();
+                      NotificationScheduler.runNow(MainActivity.this);
+                  }
+
+                  @Override
+                  public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                      handler.cancel();
+                      Toast.makeText(MainActivity.this, "Conexão segura não pôde ser validada.", Toast.LENGTH_LONG).show();
+                  }
+              }
+
+              private class AppWebChromeClient extends WebChromeClient {
+                  @Override
+                  public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
+                                                   FileChooserParams params) {
+                      if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                      filePathCallback = callback;
+                      try {
+                          startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                          return true;
+                      } catch (ActivityNotFoundException e) {
+                          filePathCallback = null;
+                          Toast.makeText(MainActivity.this, "Nenhum seletor de arquivos disponível.", Toast.LENGTH_SHORT).show();
+                          return false;
+                      }
+                  }
+
+                  @Override
+                  public void onGeolocationPermissionsShowPrompt(String origin,
+                                                                 GeolocationPermissions.Callback callback) {
+                      if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                              || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                          callback.invoke(origin, true, false);
+                          return;
+                      }
+                      pendingGeoOrigin = origin;
+                      pendingGeoCallback = callback;
+                      requestPermissions(new String[]{
+                              Manifest.permission.ACCESS_FINE_LOCATION,
+                              Manifest.permission.ACCESS_COARSE_LOCATION
+                      }, LOCATION_REQUEST);
+                  }
+              }
+
+              private class AppDownloadListener implements DownloadListener {
+                  @Override
+                  public void onDownloadStart(String url, String userAgent, String contentDisposition,
+                                              String mimeType, long contentLength) {
+                      try {
+                          DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                          request.setMimeType(mimeType);
+                          request.addRequestHeader("User-Agent", userAgent);
+                          String cookie = CookieManager.getInstance().getCookie(url);
+                          if (cookie != null) request.addRequestHeader("Cookie", cookie);
+                          String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                          request.setTitle(fileName);
+                          request.setDescription("Baixando pelo Escala de Propósito");
+                          request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                          request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                          DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                          dm.enqueue(request);
+                          Toast.makeText(MainActivity.this, "Download iniciado.", Toast.LENGTH_SHORT).show();
+                      } catch (Exception e) {
+                          openExternal(Uri.parse(url));
+                      }
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
+                      Uri[] results = null;
+                      if (resultCode == RESULT_OK && data != null) {
+                          if (data.getClipData() != null) {
+                              int count = data.getClipData().getItemCount();
+                              results = new Uri[count];
+                              for (int i = 0; i < count; i++) results[i] = data.getClipData().getItemAt(i).getUri();
+                          } else if (data.getData() != null) {
+                              results = new Uri[]{data.getData()};
+                          }
+                      }
+                      filePathCallback.onReceiveValue(results);
+                      filePathCallback = null;
+                  }
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == LOCATION_REQUEST && pendingGeoCallback != null) {
+                      boolean granted = false;
+                      for (int result : grantResults) {
+                          if (result == PackageManager.PERMISSION_GRANTED) {
+                              granted = true;
+                              break;
+                          }
+                      }
+                      pendingGeoCallback.invoke(pendingGeoOrigin, granted, false);
+                      pendingGeoCallback = null;
+                      pendingGeoOrigin = null;
+                  } else if (requestCode == NOTIFICATION_REQUEST) {
+                      NotificationScheduler.runNow(this);
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle outState) {
+                  if (webView != null) webView.saveState(outState);
+                  super.onSaveInstanceState(outState);
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (webView != null) {
+                      webView.loadUrl("about:blank");
+                      webView.stopLoading();
+                      webView.setWebChromeClient(null);
+                      webView.setWebViewClient(null);
+                      webView.destroy();
+                  }
+                  super.onDestroy();
+              }
+          }
+          EOF
+          sed -i 's/^          //' "$PKG_DIR/MainActivity.java"
+
+      - name: Generate NEW signing key
+        run: |
+          set -euo pipefail
+          mkdir -p signing-backup
+          PASS="$(openssl rand -hex 24)"
+          ALIAS="escala-mobile"
+          KEYSTORE="$GITHUB_WORKSPACE/signing-backup/Escala-de-Proposito-Mobile-v2.jks"
+          keytool -genkeypair -v             -keystore "$KEYSTORE"             -storepass "$PASS"             -keypass "$PASS"             -alias "$ALIAS"             -keyalg RSA -keysize 4096 -validity 10000             -dname "CN=Escala de Proposito Mobile, OU=Inacio Labs, O=Inacio Labs, L=Ouvidor, ST=Goias, C=BR"
+          echo "ESCALA_KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "ESCALA_STORE_PASS=$PASS" >> "$GITHUB_ENV"
+          echo "ESCALA_KEY_PASS=$PASS" >> "$GITHUB_ENV"
+          echo "ESCALA_KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
+
+          {
+            echo "ESCALA DE PROPOSITO MOBILE - BACKUP DA ASSINATURA"
+            echo
+            echo "Pacote: br.com.inaciolabs.escaladeproposito.mobile"
+            echo "Alias: $ALIAS"
+            echo "Store password: $PASS"
+            echo "Key password: $PASS"
+            echo
+            echo "GUARDE ESTE ARQUIVO E A CHAVE JKS. Sem esta chave, futuras atualizacoes nao instalam por cima deste novo app."
+          } > signing-backup/LEIA-ME-CHAVE.txt
+
+      - name: Build signed APK and AAB
+        working-directory: android-mobile-v2
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:assembleRelease :app:bundleRelease
+
+      - name: Validate package, icon, signature and domain
+        run: |
+          set -euo pipefail
+          APK=android-mobile-v2/app/build/outputs/apk/release/app-release.apk
+          AAB=android-mobile-v2/app/build/outputs/bundle/release/app-release.aab
+          test -s "$APK"
+          test -s "$AAB"
+
+          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+
+          "$AAPT" dump badging "$APK" | tee APK-BADGING.txt
+          grep -Fq "package: name='br.com.inaciolabs.escaladeproposito.mobile'" APK-BADGING.txt
+          grep -Fq "application-label:'Escala de Propósito'" APK-BADGING.txt
+          grep -Fq "versionName='2.0.0'" APK-BADGING.txt
+
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee APK-SIGNATURE.txt
+          grep -Fq 'Verified' APK-SIGNATURE.txt
+
+          grep -Fq 'https://escaladeproposito.com.br/?__app=1'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
+          grep -Fq 'EscalaDePropositoAndroid/2.0.0'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
+          grep -Fq 'app-pending.php'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/NotificationPoller.java
+
+          test "$(wc -c < android-mobile-v2/app/src/main/res/drawable/ic_launcher.png)" -gt 10000
+          sha256sum android-mobile-v2/app/src/main/res/drawable/ic_launcher.png | tee ICON-SHA256.txt
+
+          keytool -list -v             -keystore "$ESCALA_KEYSTORE"             -storepass "$ESCALA_STORE_PASS"             -alias "$ESCALA_KEY_ALIAS" | grep -E 'SHA256:|Owner:|Alias name:' > signing-backup/CERTIFICADO.txt
+
+      - name: Prepare deliverables
+        run: |
+          set -euo pipefail
+          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.0.apk
+          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.0.aab
+          sha256sum Escala-de-Proposito-Mobile-v2.0.0.apk             Escala-de-Proposito-Mobile-v2.0.0.aab > SHA256-ANDROID-MOBILE-v2.0.0.txt
+
+      - name: Publish Android v2 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete android-mobile-v2.0.0 --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-mobile-v2.0.0             Escala-de-Proposito-Mobile-v2.0.0.apk             Escala-de-Proposito-Mobile-v2.0.0.aab             SHA256-ANDROID-MOBILE-v2.0.0.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.0'             --notes 'Novo aplicativo Android separado. Pacote: br.com.inaciolabs.escaladeproposito.mobile. Assinatura nova. Abre https://escaladeproposito.com.br/?__app=1, usa o visual atual da plataforma, ícone oficial, GPS, downloads, deep links e notificações nativas com som/vibração/badge. Pode coexistir com o app antigo.'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Escala-de-Proposito-Mobile-v2.0.0
+          path: |
+            Escala-de-Proposito-Mobile-v2.0.0.apk
+            Escala-de-Proposito-Mobile-v2.0.0.aab
+            SHA256-ANDROID-MOBILE-v2.0.0.txt
+            APK-SIGNATURE.txt
+            ICON-SHA256.txt
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ESCALA-DE-PROPOSITO-MOBILE-SIGNING-BACKUP
+          path: signing-backup/
+          retention-days: 90
