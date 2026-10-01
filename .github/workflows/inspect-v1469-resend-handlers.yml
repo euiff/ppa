@@ -1,0 +1,42 @@
+name: Inspect v1.4.69 resend handlers
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v1469-resend-handlers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.4.69
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.69 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+      - name: Print resend handlers
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=next(Path('pkg/assets').glob('index-*.js'))
+          s=p.read_text(encoding='utf-8')
+          for needle in ['tn=async','Kt=async','const tn=','const Kt=','function tn','function Kt','force_resend','resend','reenviar']:
+              print('\n===== '+needle+' =====')
+              start=0; shown=0
+              while shown<20:
+                  i=s.find(needle,start)
+                  if i<0: break
+                  print('INDEX',i)
+                  print(s[max(0,i-3200):min(len(s),i+4200)])
+                  print('\n---')
+                  start=i+len(needle); shown+=1
+          PY
