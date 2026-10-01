@@ -1,0 +1,39 @@
+name: Inspect v1.4.68 legacy domains
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v1468-legacy-domains.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download v1.4.68
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.68 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+      - name: Find old domains in runtime files
+        run: |
+          set -euo pipefail
+          echo '=== OLD DOMAIN REFERENCES ==='
+          grep -RInE --include='*.php' --include='*.js' --include='*.html' --include='*.json' 'escala\.isaacanthony\.com\.br|topescalas\.vercel\.app' pkg || true
+          echo '=== INTERMEDIATE SCREEN BRANCH ==='
+          python - <<'PY'
+          from pathlib import Path
+          p=next(Path('pkg/assets').glob('index-*.js'))
+          s=p.read_text(encoding='utf-8')
+          needle='if(y&&pe){'
+          i=s.find(needle)
+          print('index',i)
+          if i>=0: print(s[i:i+1800])
+          PY
