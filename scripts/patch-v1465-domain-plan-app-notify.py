@@ -34,8 +34,8 @@ old="const b={action:'save_settings',trial_days:Number(trial.value),sales_whatsa
 new="const b={action:'save_settings',trial_days:Number(trial.value),sales_whatsapp:salesWhatsapp.value,sales_email:salesEmail.value,system_public_url:systemUrl.value.trim(),mercadopago_webhook_url:webhook.value.trim(),saas_sales_url:salesUrl.value.trim(),mercadopago_public_key:publicKey.value};"
 h=one(h,old,new,'commercial save domain')
 
-old="\${Number(p.destaque)?' · Destaque':''}</div><div class=\"row-actions\""
-new="\${Number(p.destaque)?' · Destaque':''}<br><span class=\"badge \${Number(p.app_notifications_enabled??1)?'active':'expired'}\">App \${Number(p.app_notifications_enabled??1)?'✓':'✕'}</span> <span class=\"badge \${Number(p.whatsapp_enabled??1)?'active':'expired'}\">WhatsApp \${Number(p.whatsapp_enabled??1)?'✓':'✕'}</span></div><div class=\"row-actions\""
+old="${Number(p.destaque)?' · Destaque':''}</div><div class=\"row-actions\""
+new="${Number(p.destaque)?' · Destaque':''}<br><span class=\"badge ${Number(p.app_notifications_enabled??1)?'active':'expired'}\">App ${Number(p.app_notifications_enabled??1)?'✓':'✕'}</span> <span class=\"badge ${Number(p.whatsapp_enabled??1)?'active':'expired'}\">WhatsApp ${Number(p.whatsapp_enabled??1)?'✓':'✕'}</span></div><div class=\"row-actions\""
 if old not in h:
     raise SystemExit('plan card resources anchor missing')
 h=h.replace(old,new,1)
@@ -44,8 +44,8 @@ old="p=p||{id:'',nome:'',descricao:'',preco:39.9,duracao_dias:30,ativo:1,destaqu
 new="p=p||{id:'',nome:'',descricao:'',preco:39.9,duracao_dias:30,ativo:1,destaque:0,ordem:10,whatsapp_enabled:1,app_notifications_enabled:1};"
 h=one(h,old,new,'plan modal defaults')
 
-old='<label class="switch"><input id="pDest" type="checkbox" \${Number(p.destaque)?\\'checked\\':\\'\\'}> Destaque</label></div>'
-new='<label class="switch"><input id="pDest" type="checkbox" \${Number(p.destaque)?\\'checked\\':\\'\\'}> Destaque</label><label class="switch"><input id="pApp" type="checkbox" \${Number(p.app_notifications_enabled??1)?\\'checked\\':\\'\\'}> Notificações pelo app</label><label class="switch"><input id="pWhats" type="checkbox" \${Number(p.whatsapp_enabled??1)?\\'checked\\':\\'\\'}> WhatsApp</label></div>'
+old='<label class="switch"><input id="pDest" type="checkbox" ${Number(p.destaque)?\'checked\':\'\'}> Destaque</label></div>'
+new='<label class="switch"><input id="pDest" type="checkbox" ${Number(p.destaque)?\'checked\':\'\'}> Destaque</label><label class="switch"><input id="pApp" type="checkbox" ${Number(p.app_notifications_enabled??1)?\'checked\':\'\'}> Notificações pelo app</label><label class="switch"><input id="pWhats" type="checkbox" ${Number(p.whatsapp_enabled??1)?\'checked\':\'\'}> WhatsApp</label></div>'
 h=one(h,old,new,'plan feature toggles')
 
 old="ordem:Number(pOrdem.value),ativo:pAtivo.checked,destaque:pDest.checked});"
