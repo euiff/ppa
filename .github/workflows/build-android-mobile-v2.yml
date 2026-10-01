@@ -79,8 +79,8 @@ jobs:
                   applicationId 'br.com.inaciolabs.escaladeproposito.mobile'
                   minSdk 23
                   targetSdk 35
-                  versionCode 201
-                  versionName '2.0.1'
+                  versionCode 202
+                  versionName '2.0.2'
               }
 
               signingConfigs {
@@ -368,7 +368,7 @@ jobs:
                       conn.setReadTimeout(20000);
                       conn.setRequestProperty("Authorization", "Bearer " + token);
                       conn.setRequestProperty("Accept", "application/json");
-                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.1 NativeNotify");
+                      conn.setRequestProperty("User-Agent", "EscalaDePropositoAndroid/2.0.2 NativeNotify");
                       int code = conn.getResponseCode();
                       InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
                       if (stream == null) return;
@@ -595,14 +595,40 @@ jobs:
               }
 
               private void applySystemBarInsets(View root) {
-                  // v2.0.1: o Android ajusta o conteúdo às barras do sistema.
-                  // Não aplicamos padding manual no FrameLayout, porque a página web
-                  // já é responsiva/safe-area aware. Isso remove as margens duplicadas.
+                  // v2.0.2: o app controla os insets nativamente.
+                  // O rodapé fica sempre acima da barra/botões do Android.
+                  // No topo reduzimos apenas 4dp para aproveitar um pouco melhor a tela,
+                  // sem encostar os controles do app nos ícones da barra de status.
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                      getWindow().setDecorFitsSystemWindows(true);
+                      getWindow().setDecorFitsSystemWindows(false);
                   }
+
                   root.setFitsSystemWindows(false);
-                  root.setPadding(0, 0, 0, 0);
+                  root.setOnApplyWindowInsetsListener((v, insets) -> {
+                      int topInset;
+                      int bottomInset;
+
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                          android.graphics.Insets bars = insets.getInsets(
+                                  WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars()
+                          );
+                          topInset = bars.top;
+                          bottomInset = bars.bottom;
+                      } else {
+                          topInset = insets.getSystemWindowInsetTop();
+                          bottomInset = insets.getSystemWindowInsetBottom();
+                      }
+
+                      int trimTop = Math.round(
+                              4f * getResources().getDisplayMetrics().density
+                      );
+                      int safeTop = Math.max(0, topInset - trimTop);
+
+                      v.setPadding(0, safeTop, 0, Math.max(0, bottomInset));
+                      return insets;
+                  });
+
+                  root.requestApplyInsets();
                   webView.setPadding(0, 0, 0, 0);
               }
 
@@ -623,7 +649,7 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
                   }
-                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.1 MobilePackage");
+                  settings.setUserAgentString(settings.getUserAgentString() + " EscalaDePropositoAndroid/2.0.2 MobilePackage");
 
                   CookieManager cookies = CookieManager.getInstance();
                   cookies.setAcceptCookie(true);
@@ -728,7 +754,7 @@ jobs:
                           "if(b){b.style.margin='0';}" +
                           "var m=document.querySelector('meta[name=viewport]');" +
                           "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}" +
-                          "m.content='width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover';" +
+                          "m.content='width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=auto';" +
                           "}catch(e){}})();",
                           null
                       );
@@ -909,13 +935,13 @@ jobs:
           "$AAPT" dump badging "$APK" | tee APK-BADGING.txt
           grep -Fq "package: name='br.com.inaciolabs.escaladeproposito.mobile'" APK-BADGING.txt
           grep -Fq "application-label:'Escala de Propósito'" APK-BADGING.txt
-          grep -Fq "versionName='2.0.1'" APK-BADGING.txt
+          grep -Fq "versionName='2.0.2'" APK-BADGING.txt
 
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee APK-SIGNATURE.txt
           grep -Fq 'Verified' APK-SIGNATURE.txt
 
           grep -Fq 'https://escaladeproposito.com.br/?__app=1'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
-          grep -Fq 'EscalaDePropositoAndroid/2.0.1'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
+          grep -Fq 'EscalaDePropositoAndroid/2.0.2'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/MainActivity.java
           grep -Fq 'app-pending.php'             android-mobile-v2/app/src/main/java/br/com/inaciolabs/escaladeproposito/mobile/NotificationPoller.java
 
           test "$(wc -c < android-mobile-v2/app/src/main/res/drawable/ic_launcher.png)" -gt 10000
@@ -926,25 +952,25 @@ jobs:
       - name: Prepare deliverables
         run: |
           set -euo pipefail
-          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.1.apk
-          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.1.aab
-          sha256sum Escala-de-Proposito-Mobile-v2.0.1.apk             Escala-de-Proposito-Mobile-v2.0.1.aab > SHA256-ANDROID-MOBILE-v2.0.1.txt
+          cp android-mobile-v2/app/build/outputs/apk/release/app-release.apk             Escala-de-Proposito-Mobile-v2.0.2.apk
+          cp android-mobile-v2/app/build/outputs/bundle/release/app-release.aab             Escala-de-Proposito-Mobile-v2.0.2.aab
+          sha256sum Escala-de-Proposito-Mobile-v2.0.2.apk             Escala-de-Proposito-Mobile-v2.0.2.aab > SHA256-ANDROID-MOBILE-v2.0.2.txt
 
       - name: Publish Android v2 release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release delete android-mobile-v2.0.1 --yes --cleanup-tag 2>/dev/null || true
-          gh release create android-mobile-v2.0.1             Escala-de-Proposito-Mobile-v2.0.1.apk             Escala-de-Proposito-Mobile-v2.0.1.aab             SHA256-ANDROID-MOBILE-v2.0.1.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.1'             --notes 'Atualização Mobile v2.0.1. Mantém o pacote br.com.inaciolabs.escaladeproposito.mobile e a mesma assinatura da v2.0.0. Corrige margens duplicadas no topo/rodapé, melhora o aproveitamento da tela e mantém domínio oficial, ícone, GPS, downloads, deep links e notificações nativas.'
+          gh release delete android-mobile-v2.0.2 --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-mobile-v2.0.2             Escala-de-Proposito-Mobile-v2.0.2.apk             Escala-de-Proposito-Mobile-v2.0.2.aab             SHA256-ANDROID-MOBILE-v2.0.2.txt             APK-SIGNATURE.txt             ICON-SHA256.txt             --target "$GITHUB_SHA"             --title 'Escala de Propósito Mobile v2.0.2'             --notes 'Atualização Mobile v2.0.2. Mantém o pacote br.com.inaciolabs.escaladeproposito.mobile e a mesma assinatura da v2.0.0. Mantém o rodapé acima dos botões/barra de navegação do Android, reduz discretamente a margem superior e preserva domínio oficial, ícone, GPS, downloads, deep links e notificações nativas.'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Escala-de-Proposito-Mobile-v2.0.1
+          name: Escala-de-Proposito-Mobile-v2.0.2
           path: |
-            Escala-de-Proposito-Mobile-v2.0.1.apk
-            Escala-de-Proposito-Mobile-v2.0.1.aab
-            SHA256-ANDROID-MOBILE-v2.0.1.txt
+            Escala-de-Proposito-Mobile-v2.0.2.apk
+            Escala-de-Proposito-Mobile-v2.0.2.aab
+            SHA256-ANDROID-MOBILE-v2.0.2.txt
             APK-SIGNATURE.txt
             ICON-SHA256.txt
           retention-days: 90
