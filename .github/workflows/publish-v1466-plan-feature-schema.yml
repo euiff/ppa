@@ -27,6 +27,11 @@ jobs:
           unzip -q base/escala-de-proposito-cpanel.zip -d pkg
           test "$(cat pkg/VERSION)" = "1.4.65"
 
+      - name: Inspect billing schema v1.4.65
+        run: |
+          set -euo pipefail
+          sed -n '1,90p' pkg/api/billing_lib_v1314.php
+
       - name: Apply v1.4.66 schema fix
         run: |
           set -euo pipefail
