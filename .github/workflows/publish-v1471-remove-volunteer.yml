@@ -1,0 +1,84 @@
+name: Publish Escala de Proposito v1.4.71 Remove Volunteer
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1471-remove-volunteer.yml'
+      - 'scripts/patch-v1471-remove-volunteer.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.70 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.70 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '8fe2c6b7f8289072184d4c05260221fdb66effbfc11fe2ef0590e734781902c9  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.70"
+
+      - name: Apply v1.4.71
+        run: |
+          set -euo pipefail
+          python scripts/patch-v1471-remove-volunteer.py
+
+      - name: Validate v1.4.71
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.71"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+
+          node --check "$ASSET"
+          php -l pkg/api/scale-item-remove-v1471.php
+
+          grep -Fq 'removeScaleItemV1471' "$ASSET"
+          grep -Fq 'Retirar' "$ASSET"
+          grep -Fq 'scale-item-remove-v1471.php' "$ASSET"
+          grep -Fq 'DELETE FROM escala_itens' pkg/api/scale-item-remove-v1471.php
+          grep -Fq "role==='lider'" pkg/api/scale-item-remove-v1471.php || grep -Fq "\$role==='lider'" pkg/api/scale-item-remove-v1471.php
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.71"' pkg/sistema.html
+          grep -Fq '/app-notifications-v1465.js?v=1.4.71' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.71' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.71.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.71.txt
+
+      - name: Publish v1.4.71
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.71 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.71 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.71.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.71' \
+            --notes-file pkg/ATUALIZACAO-v1.4.71.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.71
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.71.txt
+          retention-days: 30
