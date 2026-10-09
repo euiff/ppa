@@ -116,7 +116,7 @@ jobs:
           grep -Fq '/app-notifications-v1465.js?v=1.4.73' pkg/sistema.html
           grep -Fq 'escala-version:1.4.73' pkg/sw.js
 
-          php -r "require 'pkg/api/whatsapp_group_reminder_v1473.php'; $x=v1473_clean_reminders([['days_before'=>2,'time'=>'18:00'],['days_before'=>1,'time'=>'18:00'],['days_before'=>0,'time'=>'08:00']]); if(count($x)!==3 || $x[0]['days_before']!==2 || $x[2]['days_before']!==0) exit(1);"
+          php -r 'require "pkg/api/whatsapp_group_reminder_v1473.php"; $x=v1473_clean_reminders([["days_before"=>2,"time"=>"18:00"],["days_before"=>1,"time"=>"18:00"],["days_before"=>0,"time"=>"08:00"]]); if(count($x)!==3 || $x[0]["days_before"]!==2 || $x[2]["days_before"]!==0) exit(1);'
 
       - name: Build release packages
         run: |
