@@ -1,0 +1,88 @@
+name: Publish Escala de Proposito v1.4.76 PDF Pending Match
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1476-pdf-pending-match.yml'
+      - 'scripts/patch-v1476-pdf-pending-match.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.75 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.75 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'af8bd0c9fc29d36522ce39152ef9fe81d218ded3419bd8341acce9257ef1e5a2  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.75"
+
+      - name: Apply v1.4.76
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1476-pdf-pending-match.py
+          python3 scripts/patch-v1476-pdf-pending-match.py
+
+      - name: Validate v1.4.76
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.76"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+
+          php -l pkg/api/whatsapp_group_reminder_v1473.php
+          node --check pkg/master-whatsapp-groups-entry-v1475.js
+          node --check pkg/whatsapp-group-settings-v1473.js
+          node --check "$ASSET"
+
+          grep -Fq 'O PDF da escala completa busca todas as escalas' pkg/api/whatsapp_group_reminder_v1473.php
+          grep -Fq "AND LOWER(TRIM(COALESCE(ei.status_confirmacao,''))) IN ('','pendente')" pkg/api/whatsapp_group_reminder_v1473.php
+          ! sed -n '/function v1474_fresh_pending_count/,/^}/p' pkg/api/whatsapp_group_reminder_v1473.php | grep -Fq "e.status='publicado'"
+          grep -Fq "return 'https://escaladeproposito.com.br';" pkg/api/whatsapp_group_reminder_v1473.php
+          grep -Fq '/whatsapp-group-settings-v1473.js?v=1.4.76' pkg/sistema.html
+          grep -Fq '/app-notifications-v1465.js?v=1.4.76' pkg/sistema.html
+          grep -Fq '/master-whatsapp-groups-entry-v1475.js?v=1.4.76' pkg/sistema.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.76"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.76' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.76.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.76.txt
+
+      - name: Publish v1.4.76
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.76 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.76 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.76.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.76' \
+            --notes-file pkg/ATUALIZACAO-v1.4.76.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.76
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.76.txt
+          retention-days: 30
