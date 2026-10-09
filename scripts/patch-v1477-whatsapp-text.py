@@ -15,7 +15,7 @@ s=s.replace(old_default,new_default)
 
 old_render="""function v1473_render_message(string $template,array $ctx): string {
     $template=trim($template)!==''?$template:v1473_default_message();
-    $repl=["""
+    return strtr($template,["""
 new_render="""function v1473_render_message(string $template,array $ctx): string {
     $template=trim($template)!==''?$template:v1473_default_message();
     // v1.4.77: atualiza automaticamente a frase antiga já salva por igrejas
@@ -25,7 +25,7 @@ new_render="""function v1473_render_message(string $template,array $ctx): string
         'Por gentileza, entrem no WhatsApp do sistema Escala de Propósito e façam a confirmação das pendências.',
         $template
     );
-    $repl=["""
+    return strtr($template,["""
 if s.count(old_render)!=1:
     raise SystemExit('render anchor count='+str(s.count(old_render)))
 s=s.replace(old_render,new_render,1)
