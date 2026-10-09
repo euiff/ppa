@@ -1,0 +1,151 @@
+name: Publish Escala de Proposito v1.4.73 Group Schedules
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1473-group-schedules.yml'
+      - 'scripts/v1473-bundle.b64.part*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.72 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.72 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'd202217f47bfd390e17aa65ccb08ecc23e5e2764d380deecc317c7f2065ba114  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.72"
+
+      - name: Decode v1.4.73 runtime files
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/v1473
+          cat scripts/v1473-bundle.b64.part* | tr -d '\r\n' | base64 -d > /tmp/v1473.tar.gz
+          tar -xzf /tmp/v1473.tar.gz -C /tmp/v1473
+          cp /tmp/v1473/api/whatsapp_group_reminder_v1473.php pkg/api/
+          cp /tmp/v1473/api/whatsapp-group-v1473.php pkg/api/
+          cp /tmp/v1473/whatsapp-group-settings-v1473.js pkg/
+
+      - name: Apply v1.4.73 integration
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg')
+          p=root/'api'/'automation_v130.php'
+          s=p.read_text(encoding='utf-8')
+          old="if(is_file(__DIR__.'/whatsapp_group_reminder_v1472.php'))require_once __DIR__.'/whatsapp_group_reminder_v1472.php';"
+          new="if(is_file(__DIR__.'/whatsapp_group_reminder_v1473.php'))require_once __DIR__.'/whatsapp_group_reminder_v1473.php';"
+          if s.count(old)!=1: raise SystemExit('automation include anchor '+str(s.count(old)))
+          s=s.replace(old,new,1)
+          old="if(function_exists('v1472_group_reminders')){$gx=v1472_group_reminders();$s['group_reminders_due']=$gx['due']??0;$s['group_reminders_sent']=$gx['sent']??0;$s['group_reminders_failed']=$gx['failed']??0;}"
+          new="if(function_exists('v1473_group_reminders')){$gx=v1473_group_reminders();$s['group_reminders_due']=$gx['due']??0;$s['group_reminders_sent']=$gx['sent']??0;$s['group_reminders_failed']=$gx['failed']??0;}"
+          if s.count(old)!=1: raise SystemExit('automation call anchor '+str(s.count(old)))
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=root/'sistema.html'
+          h=p.read_text(encoding='utf-8')
+          h=h.replace('/whatsapp-group-settings-v1472.js?v=1.4.72','/whatsapp-group-settings-v1473.js?v=1.4.73')
+          h=h.replace('/app-notifications-v1465.js?v=1.4.72','/app-notifications-v1465.js?v=1.4.73')
+          h,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',r'\1?v=1.4.73\2',h,count=1)
+          if n!=1: raise SystemExit('main bundle tag missing')
+          if 'whatsapp-group-settings-v1473.js?v=1.4.73' not in h: raise SystemExit('new settings script missing')
+          p.write_text(h,encoding='utf-8')
+
+          p=root/'sw.js'
+          sw=p.read_text(encoding='utf-8')
+          sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
+          p.write_text('/* escala-version:1.4.73 */\n'+sw,encoding='utf-8')
+          (root/'VERSION').write_text('1.4.73\n',encoding='utf-8')
+          PY
+
+          cat > pkg/ATUALIZACAO-v1.4.73.md <<'EOF'
+          # Escala de Propósito v1.4.73 — Grupo por igreja e vários lembretes
+
+          - Corrige o erro SQLSTATE[22001]: Data too long for column valor ao salvar a mensagem do grupo.
+          - As configurações do grupo agora ficam em tabela própria; a mensagem usa MEDIUMTEXT e a programação usa JSON, sem depender do campo curto api_config.valor.
+          - Cada igreja possui somente o seu próprio endereço/ID de grupo (JID), evitando exposição dos grupos das outras igrejas.
+          - Novo fluxo: a igreja adiciona o WhatsApp oficial ao grupo; o MASTER consulta o endereço/JID na API e informa à igreja; a igreja cola esse endereço na própria configuração.
+          - A tela da igreja deixa de listar todos os grupos da instância. A listagem pela API fica restrita ao MASTER.
+          - Permite cadastrar vários lembretes para a mesma escala, cada um com antecedência e horário próprios: 2 dias antes, 1 dia antes, no mesmo dia ou vários horários.
+          - Em cada envio o sistema recalcula quantas pessoas ainda estão pendentes e gera o PDF completo da escala.
+          - A proteção contra duplicidade considera cada programação separadamente, permitindo vários lembretes sem repetir o mesmo horário.
+          - O endereço do grupo pode ser informado completo com @g.us ou somente pelo identificador numérico.
+          - Mantém integralmente os recursos da v1.4.72.
+          EOF
+
+      - name: Validate v1.4.73
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.73"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+
+          php -l pkg/api/whatsapp_group_reminder_v1473.php
+          php -l pkg/api/whatsapp-group-v1473.php
+          php -l pkg/api/automation_v130.php
+          node --check pkg/whatsapp-group-settings-v1473.js
+          node --check "$ASSET"
+
+          grep -Fq 'message_template MEDIUMTEXT' pkg/api/whatsapp_group_reminder_v1473.php
+          grep -Fq 'reminders_json TEXT' pkg/api/whatsapp_group_reminder_v1473.php
+          grep -Fq 'whatsapp_group_settings_v1473' pkg/api/whatsapp-group-v1473.php
+          grep -Fq "role!=='master'" pkg/api/whatsapp-group-v1473.php
+          grep -Fq 'A listagem de grupos é restrita ao MASTER' pkg/api/whatsapp-group-v1473.php
+          grep -Fq 'v1473_group_reminders' pkg/api/automation_v130.php
+          grep -Fq 'reminder_days_before' pkg/api/whatsapp_group_reminder_v1473.php
+          grep -Fq 'days_before' pkg/whatsapp-group-settings-v1473.js
+          grep -Fq 'Endereço/ID do grupo (JID)' pkg/whatsapp-group-settings-v1473.js
+          grep -Fq '+ Adicionar lembrete' pkg/whatsapp-group-settings-v1473.js
+          grep -Fq '/whatsapp-group-settings-v1473.js?v=1.4.73' pkg/sistema.html
+          ! grep -Fq '/whatsapp-group-settings-v1472.js?v=1.4.72' pkg/sistema.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.73"' pkg/sistema.html
+          grep -Fq '/app-notifications-v1465.js?v=1.4.73' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.73' pkg/sw.js
+
+          php -r "require 'pkg/api/whatsapp_group_reminder_v1473.php'; $x=v1473_clean_reminders([['days_before'=>2,'time'=>'18:00'],['days_before'=>1,'time'=>'18:00'],['days_before'=>0,'time'=>'08:00']]); if(count($x)!==3 || $x[0]['days_before']!==2 || $x[2]['days_before']!==0) exit(1);"
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.73.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.73.txt
+
+      - name: Publish v1.4.73
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.73 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.73 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.73.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.73' \
+            --notes-file pkg/ATUALIZACAO-v1.4.73.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.73
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.73.txt
+          retention-days: 30
