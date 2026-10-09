@@ -1,0 +1,134 @@
+name: Publish Escala de Proposito v1.4.75 Master WhatsApp Groups
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1475-master-whatsapp-groups.yml'
+      - 'runtime/v1475/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.74 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.4.74 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'b36946ea867188eb3554b1a6a9db37b15549e6e15490c870567d72109e6c43b6  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          mkdir pkg
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.74"
+
+      - name: Add MASTER WhatsApp groups portal
+        run: |
+          set -euo pipefail
+          cp runtime/v1475/api/master-whatsapp-groups-v1475.php pkg/api/
+          cp runtime/v1475/master-grupos-whatsapp.html pkg/
+          cp runtime/v1475/master-whatsapp-groups-entry-v1475.js pkg/
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path('pkg')
+          p=root/'sistema.html'
+          h=p.read_text(encoding='utf-8')
+
+          h,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',r'\1?v=1.4.75\2',h,count=1)
+          if n!=1:
+              raise SystemExit('main bundle tag missing')
+
+          h=h.replace('/app-notifications-v1465.js?v=1.4.74','/app-notifications-v1465.js?v=1.4.75')
+          h=h.replace('/whatsapp-group-settings-v1473.js?v=1.4.74','/whatsapp-group-settings-v1473.js?v=1.4.75')
+
+          tag='  <script src="/master-whatsapp-groups-entry-v1475.js?v=1.4.75" defer></script>\n'
+          if 'master-whatsapp-groups-entry-v1475.js' not in h:
+              needle='  <script src="/master-migration-entry.js?v=1442" defer></script>\n'
+              if needle in h:
+                  h=h.replace(needle,needle+tag,1)
+              else:
+                  h=h.replace('</body>',tag+'</body>',1)
+
+          p.write_text(h,encoding='utf-8')
+
+          p=root/'sw.js'
+          sw=p.read_text(encoding='utf-8')
+          sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
+          p.write_text('/* escala-version:1.4.75 */\n'+sw,encoding='utf-8')
+
+          (root/'VERSION').write_text('1.4.75\n',encoding='utf-8')
+          (root/'ATUALIZACAO-v1.4.75.md').write_text("""# Escala de Propósito v1.4.75 — Grupos do WhatsApp no Portal MASTER
+
+          - Adiciona ao Portal MASTER a opção **Grupos WhatsApp**.
+          - A tela consulta diretamente a Evolution API configurada no **Config. Global** e atualiza a lista dos grupos do WhatsApp oficial.
+          - Cada grupo mostra o **nome** e o **endereço JID terminado em @g.us**.
+          - O MASTER pode pesquisar grupos, copiar somente o endereço ou copiar uma mensagem pronta para enviar ao pastor/administrador da igreja.
+          - A igreja continua vendo somente o campo para informar o seu próprio grupo; a lista geral de grupos permanece exclusiva do MASTER.
+          - Ao abrir a tela, a lista é atualizada automaticamente e também existe o botão **Atualizar grupos**.
+          - Mantém integralmente os recursos e correções da v1.4.74.
+          """,encoding='utf-8')
+          PY
+
+      - name: Validate v1.4.75
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.75"
+          ASSET=$(find pkg/assets -maxdepth 1 -name 'index-*.js' | head -n 1)
+          test -n "$ASSET"
+
+          php -l pkg/api/master-whatsapp-groups-v1475.php
+          node --check pkg/master-whatsapp-groups-entry-v1475.js
+          node --check "$ASSET"
+
+          grep -Fq "role']??'')!=='master'" pkg/api/master-whatsapp-groups-v1475.php
+          grep -Fq "v1424_cfg('evolution_url',null)" pkg/api/master-whatsapp-groups-v1475.php
+          grep -Fq '/group/fetchAllGroups/' pkg/api/master-whatsapp-groups-v1475.php
+          grep -Fq 'Copiar endereço' pkg/master-grupos-whatsapp.html
+          grep -Fq 'Atualizar grupos' pkg/master-grupos-whatsapp.html
+          grep -Fq 'Copiar texto para igreja' pkg/master-grupos-whatsapp.html
+          grep -Fq 'Grupos WhatsApp' pkg/master-whatsapp-groups-entry-v1475.js
+          grep -Fq '/master-whatsapp-groups-entry-v1475.js?v=1.4.75' pkg/sistema.html
+          grep -Fq '/whatsapp-group-settings-v1473.js?v=1.4.75' pkg/sistema.html
+          grep -Fq '/app-notifications-v1465.js?v=1.4.75' pkg/sistema.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.75"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.75' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          rm -f escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.75.txt
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip | tee SHA256-v1.4.75.txt
+
+      - name: Publish v1.4.75
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.75 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.75 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            SHA256-v1.4.75.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.75' \
+            --notes-file pkg/ATUALIZACAO-v1.4.75.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.75
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.75.txt
+          retention-days: 30
