@@ -1,0 +1,128 @@
+name: Publish Escala de Proposito v1.4.81 Holyrics Connect
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1481-holyrics-connect.yml'
+      - 'runtime/v1481/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.80 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.80 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '6b3cac3764c4128ae199d29b1b6369b9bcacec0ca036fe26970fdab0618b7e95  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.80"
+
+      - name: Install optional Holyrics Connect module
+        run: |
+          set -euo pipefail
+          cp runtime/v1481/api/holyrics-core-v1481.php pkg/api/
+          cp runtime/v1481/api/holyrics-connect-v1481.php pkg/api/
+          cp runtime/v1481/api/holyrics-repertoire-v1481.php pkg/api/
+          cp runtime/v1481/holyrics-connect.html pkg/
+          cp runtime/v1481/holyrics-entry-v1481.js pkg/
+          cp runtime/v1481/Escala-de-Proposito-Holyrics.js pkg/
+          cp runtime/v1481/docs/LEIA-ME.md pkg/GUIA-HOLYRICS-v1.4.81.md
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg')
+          p=root/'sistema.html'
+          h=p.read_text(encoding='utf-8')
+          h,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',lambda m:m.group(1)+'?v=1.4.81'+m.group(2),h,count=1)
+          if n!=1:raise SystemExit('main bundle not found')
+          tags=[
+             '  <script src="/holyrics-entry-v1481.js?v=1.4.81" defer></script>',
+          ]
+          for tag in tags:
+              if tag not in h:
+                  h=h.replace('</body>',tag+'\n</body>',1)
+          for name in ['app-notifications-v1465.js','whatsapp-group-settings-v1473.js','master-whatsapp-groups-entry-v1475.js','cron-fix-v1478.js']:
+              h=h.replace(name+'?v=1.4.80',name+'?v=1.4.81')
+          p.write_text(h,encoding='utf-8')
+          sw=root/'sw.js'
+          text=sw.read_text(encoding='utf-8')
+          text=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',text,count=1)
+          sw.write_text('/* escala-version:1.4.81 */\n'+text,encoding='utf-8')
+          (root/'VERSION').write_text('1.4.81\n',encoding='utf-8')
+          PY
+          cat > pkg/ATUALIZACAO-v1.4.81.md <<'EOF'
+          # Escala de Propósito v1.4.81 — Holyrics Connect
+
+          - Novo módulo opcional de integração com Holyrics, sem alterar o app ou o fluxo de escalas/notificações.
+          - Acesse /holyrics-connect.html com conta MASTER/ADMIN para gerar uma chave por igreja, revogar ou renovar.
+          - Conexão de leitura por HTTPS e token exclusivo (servidor armazena apenas hash).
+          - Holyrics: configure uma única vez o script Escala-de-Proposito-Holyrics.js e libere o domínio em JavaScript/Requisições permitidas.
+          - Ao abrir Escala de Propósito no Holyrics, selecione o culto publicado e importe as músicas na ordem do repertório.
+          - Repertório por igreja, dia e culto; dá preferência ao departamento Louvor/Música.
+          - Não apaga listas existentes, não altera letras cadastradas e solicita seleção quando há várias músicas com nome semelhante.
+          - O script pode ficar acessível nos Favoritos/Scripts do Holyrics. O menu nativo Importar Lista Externa depende do fornecedor.
+          - Instruções detalhadas em GUIA-HOLYRICS-v1.4.81.md.
+          EOF
+
+      - name: Validate release
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.81"
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-entry-v1481.js
+          grep -Fq 'AND e.status=\x27publicado\x27' pkg/api/holyrics-core-v1481.php || grep -Fq "e.status='publicado'" pkg/api/holyrics-core-v1481.php
+          grep -Fq "hash('sha256',\$token)" pkg/api/holyrics-core-v1481.php
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'Requisiões permitidas' pkg/holyrics-connect.html || grep -Fq 'Requisições permitidas' pkg/holyrics-connect.html
+          grep -Fq '/holyrics-entry-v1481.js?v=1.4.81' pkg/sistema.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.81"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.81' pkg/sw.js
+          test -s pkg/GUIA-HOLYRICS-v1.4.81.md
+
+      - name: Build release archives
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          (cd runtime/v1481 && zip -qr ../../../holyrics-connect-v1.0.zip api holyrics-connect.html Escala-de-Proposito-Holyrics.js holyrics-entry-v1481.js docs)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.zip > SHA256-v1.4.81.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.81 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.81 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            holyrics-connect-v1.0.zip \
+            SHA256-v1.4.81.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.81 — Holyrics Connect' \
+            --notes-file pkg/ATUALIZACAO-v1.4.81.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.81
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.zip
+            SHA256-v1.4.81.txt
+          retention-days: 30
