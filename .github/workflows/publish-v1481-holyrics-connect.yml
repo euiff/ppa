@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
           cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
-          (cd runtime/v1481 && zip -qr ../../../holyrics-connect-v1.0.zip api holyrics-connect.html Escala-de-Proposito-Holyrics.js holyrics-entry-v1481.js docs)
+          (cd runtime/v1481 && zip -qr ../../holyrics-connect-v1.0.zip api holyrics-connect.html Escala-de-Proposito-Holyrics.js holyrics-entry-v1481.js docs)
           unzip -t escala-de-proposito-cpanel.zip >/dev/null
           unzip -t holyrics-connect-v1.0.zip >/dev/null
           sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.zip > SHA256-v1.4.81.txt
