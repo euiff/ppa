@@ -1,0 +1,168 @@
+name: Publish Escala de Proposito v1.4.95 Holyrics Auto Create
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1495-holyrics-auto-create.yml'
+      - 'scripts/patch-v1495-holyrics-auto-create.py'
+      - 'runtime/v1495/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg base
+          gh release download v1.4.94 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'd1c091895e4a9907003c58fee7a6cd721b86529a12375c0a52e05ede1dec528b  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.94"
+
+      - name: Apply Holyrics automation improvements
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1495-holyrics-auto-create.py
+          python3 scripts/patch-v1495-holyrics-auto-create.py
+
+      - name: Validate PHP, JS and behavior
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.95"
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          node --check pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          node --check pkg/holyrics-module-generator-v1495.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq "module.hly('CreateSong'" pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq "function edp_importar_repertorio(module, modoAssistido)" pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'function info()' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'popupCreateSong' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq "'module_version'=>'v1.5.0'" pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'holyrics-module-generator-v1495.js?v=1.4.95' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.95' pkg/sw.js
+
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const templ=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics-Modulo.js','utf8');
+          const marker='ESCALA_MODULO_TOKEN_SUBSTITUIR_NO_SERVIDOR';
+          assert.equal(templ.split(marker).length-1,1);
+          const privateCode=templ.replace(marker,'b'.repeat(64));
+          function trial(name,options) {
+            const playlist=[],popups=[],created=[],reports=[];
+            const lyrics=options.songs;
+            const h={
+              apiRequest:(url,r)=>{
+                if(url.includes('action=services'))
+                  return JSON.stringify({data:{services:[{id:'s1',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+                if(url.includes('action=songs'))return JSON.stringify({data:{songs:lyrics}});
+                throw Error('unexpected API URL');
+              },
+              hly:(method,input)=>{
+                if(method==='GetSongs')return {data:options.library||[]};
+                if(method==='SearchLyrics')return {data:[]};
+                if(method==='AddLyricsToPlaylist'){playlist.push(String(input.id));return {ok:true};}
+                throw Error('unexpected hly '+method);
+              },
+              confirm:()=>true,
+              itemChooser:(title,opts)=>opts[0],
+              inputTextArea:()=>options.paste||null,
+              popupCreateSong:(song,cb)=>{
+                popups.push(song);
+                cb(String(500+popups.length));
+              },
+              ok:msg=>reports.push(String(msg)),
+              error:msg=>reports.push('ERROR: '+String(msg))
+            };
+            const module={
+              hly:(method,payload)=>{
+                assert.equal(method,'CreateSong');
+                created.push(payload);
+                if(!options.plan)throw Error('Requer assinatura Holyrics Plan');
+                assert(payload.slides && payload.slides.length>=1);
+                return {data:{id:String(700+created.length)}};
+              }
+            };
+            const ctx={h};vm.createContext(ctx);vm.runInContext(privateCode,ctx);
+            const actions=ctx.actions(module);
+            assert.equal(actions.length,2);
+            const sel=options.assisted?actions[1]:actions[0];
+            sel.action({});
+            assert.equal(playlist.length,options.addCount,name+': playlist '+JSON.stringify(reports));
+            assert.equal(popups.length,options.popupCount,name+': popups');
+            if(options.expectedAuto!==undefined)
+              assert.equal(created.length,options.expectedAuto,name+': attempted creation');
+            assert(!reports.join('').includes('b'.repeat(64)),name+': token leaked');
+            console.log(name,'OK',{added:playlist.length,popup:popups.length,autoAttempt:created.length});
+          }
+          trial('existing library', {
+            songs:[{titulo:'Hino da Vitória'},{titulo:'Oceanos'}],
+            library:[{id:1,title:'Hino da Vitoria'},{id:2,title:'Oceanos'}],
+            plan:false,addCount:2,popupCount:0,expectedAuto:0
+          });
+          trial('paid authorized automatic create', {
+            songs:[{titulo:'Hino da Vitória',letra:'Primeiro verso\n\nSegundo verso'}],
+            library:[],plan:true,addCount:1,popupCount:0,expectedAuto:1
+          });
+          trial('free prefilled confirmation', {
+            songs:[{titulo:'Hino da Vitória',letra:'Conteudo autorizado para apresentacao'}],
+            library:[],plan:false,addCount:1,popupCount:1,expectedAuto:1
+          });
+          trial('title without lyrics stays pending', {
+            songs:[{titulo:'Hino da Vitória'}],
+            library:[],plan:false,addCount:0,popupCount:0,expectedAuto:0
+          });
+          trial('manual authorized paste fallback', {
+            songs:[{titulo:'Hino da Vitória'}],
+            library:[],plan:false,assisted:true,paste:'Letra autorizada pela igreja',
+            addCount:1,popupCount:1,expectedAuto:0
+          });
+          trial('license denied only once per run', {
+            songs:[{titulo:'Primeira',letra:'Primeira letra autorizada'},{titulo:'Segunda',letra:'Segunda letra autorizada'}],
+            library:[],plan:false,addCount:2,popupCount:2,expectedAuto:1
+          });
+          NODE
+
+      - name: Build release files
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-template
+          cp pkg/Escala-de-Proposito-Holyrics-Modulo.js holyrics-template/
+          cp pkg/ATUALIZACAO-v1.4.95.md holyrics-template/
+          (cd holyrics-template && zip -qr ../holyrics-modulo-template-v1.5.0.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-modulo-template-v1.5.0.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-modulo-template-v1.5.0.zip > SHA256-v1.4.95.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.95 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-modulo-template-v1.5.0.zip SHA256-v1.4.95.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.95 — Holyrics Auto Create' \
+            --notes-file pkg/ATUALIZACAO-v1.4.95.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.95
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-modulo-template-v1.5.0.zip
+            SHA256-v1.4.95.txt
+          retention-days: 30
