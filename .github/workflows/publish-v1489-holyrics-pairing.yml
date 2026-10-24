@@ -75,7 +75,7 @@ jobs:
                 const obj=(opt.type==='POST')?JSON.parse(opt.data):{};
                 if(obj.action==='pair'){
                   pairs++;
-                  assert.equal(obj.pairing_code,'ABCDEFGHIJKL');
+                  assert.equal(obj.pairing_code,'ABCDEFGHJKLM');
                   if(mode==='expired')return JSON.stringify({data:null,error:{message:'Código expirado ou já utilizado'}});
                   return JSON.stringify({data:{access_key:good},error:null});
                 }
