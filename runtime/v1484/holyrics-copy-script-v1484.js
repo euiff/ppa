@@ -1,7 +1,7 @@
 /* Escala de Propósito Connect v1.4.84 — instalação corrigida no Holyrics */
 (function () {
   'use strict';
-  var scriptUrl = '/Escala-de-Proposito-Holyrics.js?v=1.4.83';
+  var scriptUrl = '/Escala-de-Proposito-Holyrics.js?v=1.4.84';
 
   function insertInstaller() {
     if (document.getElementById('holyrics-copy-script-v1484')) return;
