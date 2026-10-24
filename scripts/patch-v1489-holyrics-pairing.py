@@ -100,6 +100,34 @@ s=s[:begin]+"""            // Uma credencial antiga pode ter sido revogada quand
                 throw new Error('Computador conectado pelo código, mas a consulta autenticada ainda falhou. ' +
                     (lastErrorSafe() || 'Verifique a API no site.'));
             }"""+s[end:]
+# Quando o Holyrics devolve JSON HTTP 401 (em vez de null), reconectar por código curto.
+needle="""        if (payload.error) {
+            var message = payload.error.message || 'Acesso negado.';
+            if (/chave/i.test(message)) {
+                h.store(storageKey, '');
+                message += ' Execute novamente para informar uma nova chave.';
+            }
+            throw new Error(message);
+        }"""
+replacement="""        if (payload.error) {
+            var message = payload.error.message || 'Acesso negado.';
+            if (/chave|integração ausente/i.test(message)) {
+                h.store(storageKey, '');
+                var nextToken = pairNow();
+                if (nextToken == null) throw new Error('Esta chave não está ativa. Gere novo código de conexão no portal.');
+                token = nextToken;
+                var again = authorizedRequest(action, serviceId);
+                if (again == null) throw new Error('Código aceito, mas consulta autenticada falhou.');
+                var retry;
+                try { retry = (typeof again === 'object' && again.data) ? again : JSON.parse(String(again)); }
+                catch(e) { throw new Error('Resposta inválida após reconectar.'); }
+                if (retry && retry.error) throw new Error(retry.error.message || 'Erro de autenticação.');
+                return (retry && retry.data) || {};
+            }
+            throw new Error(message);
+        }"""
+if s.count(needle)!=1:raise RuntimeError('Auth-error pairing anchor missing')
+s=s.replace(needle,replacement,1)
 p.write_text(s,encoding='utf-8')
 
 p=root/'holyrics-connect.html'
