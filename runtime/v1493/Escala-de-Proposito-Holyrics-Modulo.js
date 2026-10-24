@@ -168,14 +168,11 @@ function edp_importar_repertorio() {
         }
         // GetSongs acessa a biblioteca de letras salva no computador Holyrics.
         var todas=h.hly('GetSongs');
-        var local=todas && todas.data && todas.data.length ? todas.data : [];
-        if(!local.length){
-            // Alguns perfis nao disponibilizam GetSongs; tente busca por titulo.
-            var primeira=edp_procurar_musica(musicas[0].titulo,[]);
-            if(!primeira.length){
-                h.ok('O Escala de Proposito recebeu '+musicas.length+' musica(s) do culto, mas nao encontrou letras cadastradas nesta biblioteca do Holyrics.\n\nAbra a aba Letras do Holyrics e cadastre/importe as letras antes de tentar adicionar a playlist. Nenhuma musica foi criada automaticamente.');
-                return;
-            }
+        var listagemDisponivel=todas && todas.data && typeof todas.data.length==='number';
+        var local=listagemDisponivel?todas.data:[];
+        if(listagemDisponivel && local.length===0){
+            h.ok('O Escala de Proposito recebeu '+musicas.length+' musica(s) do culto, mas a biblioteca de letras deste Holyrics esta vazia.\n\nAbra a aba Letras do Holyrics e cadastre/importe as letras antes de adiciona-las a playlist. O modulo nao pode criar letras que nao estejam cadastradas.');
+            return;
         }
         if (!h.confirm('Repertorio recebido: '+musicas.length+' musica(s).\nProcurar na biblioteca do Holyrics e adicionar a lista atual?'))return;
 
