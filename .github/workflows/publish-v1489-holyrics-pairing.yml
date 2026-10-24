@@ -81,7 +81,7 @@ jobs:
                 }
                 if(url.includes('action=health'))return JSON.stringify({data:{health:'ok'}});
                 const key=(opt.type==='POST')?obj.access_key:opt.headers['X-Holyrics-Key'];
-                if(key===old && mode==='valid-old')return JSON.stringify({data:{services:[{id:'culto-1',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+                if(key===old && mode==='valid-old'){if(obj.action==='songs'||url.includes('action=songs'))return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});return JSON.stringify({data:{services:[{id:'culto-1',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});}
                 if(key===old && mode==='revoked')return null;
                 if(key!==good)return null;
                 if(obj.action==='songs'||url.includes('action=songs'))
