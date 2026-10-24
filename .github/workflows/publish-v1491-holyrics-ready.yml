@@ -49,7 +49,7 @@ jobs:
           grep -Fq 'require_auth()' pkg/api/holyrics-connect-v1481.php
           grep -Fq "hash('sha256',\$newToken)" pkg/api/holyrics-connect-v1481.php
           grep -Fq 'Gerar e copiar código completo' pkg/holyrics-ready-v1491.js
-          grep -Fq 'action: ' pkg/holyrics-ready-v1491.js
+          grep -Fq "action:'ready_script'" pkg/holyrics-ready-v1491.js
           grep -Fq '/holyrics-ready-v1491.js?v=1.4.91' pkg/holyrics-connect.html
           ! grep -Fq 'function scriptAction' pkg/Escala-de-Proposito-Holyrics-Pronto.js
           grep -Fq 'function foo()' pkg/Escala-de-Proposito-Holyrics-Pronto.js
