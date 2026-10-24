@@ -258,7 +258,7 @@ function edp_importar_repertorio(module, modoAssistido) {
             var letra=String(musica.letra||'').trim();
             if(letra.length>=5 && criacaoAutomaticaDisponivel) {
                 try {
-                    var partes=letra.replace(/\\r\\n/g,'\\n').split(/\\n\\s*\\n/);
+                    var partes=letra.replace(/\r\n/g,'\n').split(/\n\s*\n/);
                     var slides=[];
                     for(var n=0;n<partes.length;n++) {
                         var trecho=String(partes[n]).trim();
