@@ -1,0 +1,191 @@
+name: Publish Escala de Proposito v1.4.83 Holyrics Action Test Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1483-holyrics-action-fix.yml'
+      - 'runtime/v1483/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.82 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.82 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'd7d8024f45c6988c2fa79b6ae7c7b58418767aa32531af3640135a7c06f16ae4  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.82"
+
+      - name: Install Holyrics compatibility fix
+        run: |
+          set -euo pipefail
+          cp runtime/v1483/Escala-de-Proposito-Holyrics.js pkg/Escala-de-Proposito-Holyrics.js
+          cp runtime/v1483/holyrics-copy-script-v1483.js pkg/
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg')
+          p=root/'holyrics-connect.html'
+          html=p.read_text(encoding='utf-8')
+          old_script='holyrics-copy-script-v1482.js?v=1.4.82'
+          assert html.count(old_script)==1, 'previous code copy script missing'
+          html=html.replace(old_script,'holyrics-copy-script-v1483.js?v=1.4.83',1)
+          old_dl='/Escala-de-Proposito-Holyrics.js?v=1.4.82'
+          assert html.count(old_dl)==1, 'download link missing'
+          html=html.replace(old_dl,'/Escala-de-Proposito-Holyrics.js?v=1.4.83',1)
+          p.write_text(html,encoding='utf-8')
+
+          p=root/'sistema.html'
+          html=p.read_text(encoding='utf-8')
+          html,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',
+              lambda m:m.group(1)+'?v=1.4.83'+m.group(2),html,count=1)
+          if n!=1: raise SystemExit('main bundle not found')
+          for name in ['holyrics-entry-v1481.js','app-notifications-v1465.js',
+              'whatsapp-group-settings-v1473.js','master-whatsapp-groups-entry-v1475.js',
+              'cron-fix-v1478.js']:
+              html=html.replace(name+'?v=1.4.82',name+'?v=1.4.83')
+          p.write_text(html,encoding='utf-8')
+
+          p=root/'sw.js'
+          sw=p.read_text(encoding='utf-8')
+          sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
+          p.write_text('/* escala-version:1.4.83 */\n'+sw,encoding='utf-8')
+          (root/'VERSION').write_text('1.4.83\n',encoding='utf-8')
+
+          guide=root/'GUIA-HOLYRICS-v1.4.81.md'
+          if guide.exists():
+              txt=guide.read_text(encoding='utf-8')
+              guide.write_text('''## Atualização v1.4.83 — Correção para Ação (Receptor)
+          O editor de teste do Holyrics pode executar o modo "Enviar – Ação (Receptor)".
+          Nesse modo exige a função `scriptAction(obj)` (diferente de `foo()`).
+          O novo script agora oferece ambas. Em caso de erro antigo já salvo no PC,
+          abra o script Escala de Propósito, substitua todo o código do painel esquerdo
+          com a nova versão do portal e clique Testar e Salvar. Não precisa renovar a chave.
+          A atualização web não altera automaticamente scripts locais já instalados.
+
+          '''+txt,encoding='utf-8')
+          PY
+
+          cat > pkg/ATUALIZACAO-v1.4.83.md <<'EOF'
+          # Escala de Propósito v1.4.83 — Compatibilidade com teste Ação (Receptor) do Holyrics
+
+          - Corrigido o erro `ReferenceError: scriptAction is not defined in default_script`.
+          - O script Holyrics v1.0.2 agora inclui `scriptAction(obj)`, invocando a mesma importação de `foo()`, preservando a execução normal por Scripts e o teste do modo Ação (Receptor).
+          - A tela Integração Holyrics oferece o novo código no botão Copiar código completo e corrigido e download com versão v1.4.83.
+          - Adicionados testes automatizados para as duas entradas e para importar uma música da escala simulada.
+          - A atualização do Escala de Propósito não substitui o código antigo já salvo no Holyrics do computador: após atualizar, cole o script novo uma vez no painel esquerdo.
+          - Mantidas as funcionalidades do sistema e todas as correções da v1.4.82.
+          EOF
+
+      - name: Validate JS/PHP and two Holyrics invocation paths
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.83"
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1483.js
+          node --check pkg/holyrics-entry-v1481.js
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'function foo()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'function scriptAction(obj)' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'return foo();' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics.js
+          ! grep -Fq 'MediaPlaylistAction' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq '/holyrics-copy-script-v1483.js?v=1.4.83' pkg/holyrics-connect.html
+          grep -Fq '/Escala-de-Proposito-Holyrics.js?v=1.4.83' pkg/holyrics-connect.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.83"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.83' pkg/sw.js
+
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('assert');
+          const src = fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          for(const entry of ['foo','scriptAction']){
+            const output=[], actions=[], stores={};
+            const h={
+              restore:key=>stores[key],
+              input:()=> 'token-teste',
+              store:(key,val)=>{stores[key]=val},
+              apiRequest:url=>{
+                assert(url.startsWith('https://escaladeproposito.com.br/api/holyrics-repertoire-v1481.php'));
+                if(url.includes('action=services')) return JSON.stringify({data:{services:[{id:'culto-1',data:'2026-10-25',culto:'Culto da Família',horario:'19:00'}]}});
+                if(url.includes('action=songs')) return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                throw Error('endpoint inesperado: '+url);
+              },
+              itemChooser:(title,opts)=>opts[0],
+              confirm:()=>true,
+              hly:(action,params)=>{
+                actions.push(action);
+                if(action==='SearchSong')return {data:[{id:42,title:'Bondade de Deus',artist:'Artista'}]};
+                if(action==='AddLyricsToPlaylist')return {ok:true};
+                throw Error('ação inesperada: '+action);
+              },
+              ok:msg=>output.push(msg),
+              error:msg=>{throw Error('Holyrics error: '+msg)}
+            };
+            const context={h, console};
+            vm.createContext(context);
+            vm.runInContext(src,context);
+            assert.equal(typeof context.foo,'function');
+            assert.equal(typeof context.scriptAction,'function');
+            if(entry==='foo')context.foo();
+            else context.scriptAction({description:'Teste de receptor'});
+            assert(actions.includes('SearchSong'),'faltou pesquisar música');
+            assert(actions.includes('AddLyricsToPlaylist'),'faltou adicionar na lista');
+            assert(output.some(x=>x.includes('1 de 1')),'resultado incorreto');
+            console.log(entry+': passou');
+          }
+          NODE
+
+      - name: Build release archives
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/GUIA-HOLYRICS-v1.4.81.md holyrics-pacote/LEIA-ME.md
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.2.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.2.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.2.zip > SHA256-v1.4.83.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.83 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.83 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            holyrics-connect-v1.0.2.zip \
+            SHA256-v1.4.83.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.83 — Holyrics ScriptAction' \
+            --notes-file pkg/ATUALIZACAO-v1.4.83.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.83
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.2.zip
+            SHA256-v1.4.83.txt
+          retention-days: 30
