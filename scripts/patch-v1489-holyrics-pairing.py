@@ -50,7 +50,7 @@ s=s[:begin]+"""    // Pareamento seguro: o operador informa APENAS 12 caracteres
     function pairNow() {
         var entered = h.input('Digite o código de conexão do Holyrics (12 caracteres, gerado no portal)');
         if (entered == null) return null;
-        var code = String(entered).toUpperCase().replace(/[\\\\s-]+/g, '');
+        var code = String(entered).toUpperCase().replace(/[\s-]+/g, '');
         if (!/^[A-HJ-NP-Z2-9]{12}$/.test(code)) {
             throw new Error('Código inválido: use o código de 12 caracteres gerado no portal, não a chave longa.');
         }
