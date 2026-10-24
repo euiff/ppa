@@ -1,0 +1,173 @@
+name: Publish Escala de Proposito v1.4.85 Holyrics Authentication Repair
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1485-holyrics-auth.yml'
+      - 'runtime/v1485/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified existing system
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.84 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '404e46afe64484e11ff25ad592ec29276b9c198b18bc472ef0af377b30b14f86  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.84"
+      - name: Apply Holyrics authentication repair
+        run: |
+          set -euo pipefail
+          cp runtime/v1485/Escala-de-Proposito-Holyrics.js pkg/
+          cp runtime/v1485/holyrics-copy-script-v1485.js pkg/
+          cp runtime/v1485/api/holyrics-repertoire-v1481.php pkg/api/
+          cp runtime/v1485/api/holyrics-connect-v1481.php pkg/api/
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg')
+          p=root/'holyrics-connect.html'
+          html=p.read_text(encoding='utf-8')
+          for before,after in [
+            ('holyrics-copy-script-v1484.js?v=1.4.84','holyrics-copy-script-v1485.js?v=1.4.85'),
+            ('/Escala-de-Proposito-Holyrics.js?v=1.4.84','/Escala-de-Proposito-Holyrics.js?v=1.4.85'),
+          ]:
+            if html.count(before)!=1:raise SystemExit('missing anchor '+before)
+            html=html.replace(before,after,1)
+          p.write_text(html,encoding='utf-8')
+          p=root/'sistema.html'
+          html=p.read_text(encoding='utf-8')
+          html,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',
+            lambda m:m.group(1)+'?v=1.4.85'+m.group(2),html,count=1)
+          if n!=1:raise SystemExit('main bundle missing')
+          for name in ['holyrics-entry-v1481.js','app-notifications-v1465.js',
+            'whatsapp-group-settings-v1473.js','master-whatsapp-groups-entry-v1475.js','cron-fix-v1478.js']:
+            html=html.replace(name+'?v=1.4.84',name+'?v=1.4.85')
+          p.write_text(html,encoding='utf-8')
+          p=root/'sw.js'
+          sw=p.read_text(encoding='utf-8')
+          sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
+          p.write_text('/* escala-version:1.4.85 */\n'+sw,encoding='utf-8')
+          (root/'VERSION').write_text('1.4.85\n',encoding='utf-8')
+          guide=root/'GUIA-HOLYRICS-v1.4.81.md'
+          if guide.exists():
+            old=guide.read_text(encoding='utf-8')
+            guide.write_text("""## v1.4.85 — Autenticação e renovação da chave
+          O site já permite conexões HTTPS. Em alguns cPanels cabeçalhos Authorization
+          e X-Holyrics-Key não chegam ao PHP. Nesse caso, o novo script envia
+          uma segunda tentativa por POST HTTPS com chave no corpo JSON (NUNCA na URL).
+          Se a chave antiga foi revogada ou renovada, o script solicita a nova chave.
+          Em https://escaladeproposito.com.br/holyrics-connect.html use o botão
+          Validar chave para conferir, sem divulgar capturas de tela da chave.
+          Se o Holyrics apresentar erro de campo obj.description, deixe o campo vazio:
+          ele recebe dados de teste, não código JavaScript nem nome de função.
+          Ao atualizar o site, substitua uma vez o script local na área esquerda
+          do editor Holyrics, pois o site não altera o computador.
+
+          """+old,encoding='utf-8')
+          PY
+          cat > pkg/ATUALIZACAO-v1.4.85.md <<'EOF'
+          # Escala de Propósito v1.4.85 — Holyrics autenticação
+          - Fallback por POST HTTPS com token no corpo JSON quando a hospedagem bloqueia cabeçalhos.
+          - O script permite substituir a chave antiga quando a integração foi renovada.
+          - Tela de integração oferece Validar chave para a igreja selecionada (sem gravar a chave no browser).
+          - Verificação de segurança exige login autorizado ao testar uma chave.
+          - Mantém importação de repertório, outros recursos e as versões anteriores.
+          - Para funcionar no computador, substituir o script do Holyrics uma vez.
+          EOF
+      - name: Validate PHP and JavaScript
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.85"
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1485.js
+          node --check pkg/holyrics-entry-v1481.js
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-core-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq "method==='POST'" pkg/api/holyrics-repertoire-v1481.php
+          grep -Fq "access_key" pkg/api/holyrics-repertoire-v1481.php
+          grep -Fq "holyrics_token" pkg/api/holyrics-connect-v1481.php
+          grep -Fq "edp_hly_church_by_token" pkg/api/holyrics-connect-v1481.php
+          grep -Fq "Validar chave da igreja" pkg/holyrics-copy-script-v1485.js
+          grep -Fq "function rawPost" pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq "function scriptAction(obj)" pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq "data: JSON.stringify" pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'holyrics-copy-script-v1485.js?v=1.4.85' pkg/holyrics-connect.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.85"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.85' pkg/sw.js
+          node <<'NODE'
+          const vm=require('vm'), fs=require('fs'), assert=require('assert');
+          const js=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          function runScenario(mode){
+            const output=[],calls=[],stored=[],oldKey='a'.repeat(64), newKey='b'.repeat(64);
+            let promptCount=0;
+            const h={
+              restore:()=>oldKey,
+              store:(k,v)=>stored.push({k,v}),
+              input:()=>{promptCount++;return newKey;},
+              getApiRequestLastError:()=> 'Teste HTTP não autenticado',
+              apiRequest:(url,opts)=>{
+                calls.push({url,opts});
+                assert(!url.includes(oldKey)&&!url.includes(newKey),'Token vazou pela URL');
+                if(url.includes('action=health'))return mode==='blocked'?null:JSON.stringify({data:{health:'ok'}});
+                const posted=opts.type==='POST';
+                let key=posted?JSON.parse(opts.data).access_key:opts.headers['X-Holyrics-Key'];
+                if(mode==='blocked')return null;
+                if(mode==='header-block'&&!posted)return null;
+                if(mode==='stale'&&key===oldKey)return null;
+                if(!posted && key!==oldKey)return null;
+                if(posted && mode==='stale'&&key!==newKey)return null;
+                assert(key===newKey||key===oldKey);
+                if(url.includes('action=songs')||(posted && JSON.parse(opts.data).action==='songs'))return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                return JSON.stringify({data:{services:[{id:'s1',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+              },
+              itemChooser:(t,items)=>items[0],confirm:()=>true,
+              hly:(a,p)=>{calls.push({action:a});return a==='SearchSong'?{data:[{id:33,title:'Bondade de Deus'}]}:{ok:true}},
+              ok:m=>output.push(String(m)),error:m=>output.push(String(m))
+            };
+            const context={h,console};vm.createContext(context);vm.runInContext(js,context);
+            context.scriptAction({description:'teste'});
+            if(mode==='blocked')assert(output.some(s=>s.includes('não conseguiu abrir o endereço HTTPS')));
+            else{
+              assert(calls.some(c=>c.action==='AddLyricsToPlaylist'),'playlist not updated');
+              assert(output.some(s=>s.includes('1 de 1')));
+              if(mode==='header-block')assert(calls.some(c=>c.opts&&c.opts.type==='POST'));
+              if(mode==='stale'){assert(promptCount===1);assert(stored.some(x=>x.v===newKey));}
+            }
+            console.log(mode+': OK');
+          }
+          ['normal','header-block','stale','blocked'].forEach(runScenario);
+          NODE
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/GUIA-HOLYRICS-v1.4.81.md holyrics-pacote/LEIA-ME.md
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.4.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.4.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.4.zip > SHA256-v1.4.85.txt
+          gh release create v1.4.85 escala-de-proposito-cpanel.zip escalastop-cpanel.zip holyrics-connect-v1.0.4.zip SHA256-v1.4.85.txt --target "$GITHUB_SHA" --title 'Escala de Propósito v1.4.85 — Holyrics autenticação' --notes-file pkg/ATUALIZACAO-v1.4.85.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.85
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.4.zip
+            SHA256-v1.4.85.txt
+          retention-days: 30
