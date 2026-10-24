@@ -1,0 +1,144 @@
+name: Publish Escala de Proposito v1.4.87 Holyrics Clipboard Key
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1487-holyrics-clipboard.yml'
+      - 'scripts/patch-v1487-holyrics-clipboard-key.py'
+      - 'runtime/v1487/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.86 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.86 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '5d55faf3262df6336088d8a656b4cd0851e0780ed2feb96d429a808ee3121667  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.86"
+
+      - name: Apply Holyrics key fix and installer
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1487-holyrics-clipboard-key.py
+          python3 scripts/patch-v1487-holyrics-clipboard-key.py
+
+      - name: Validate all scripts and simulation
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.87"
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1487.js
+          node --check pkg/holyrics-entry-v1481.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'function clipboardKey()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'h.getClipboard()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq "keyIsValid(token)" pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'function scriptAction(obj)' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq "/Escala-de-Proposito-Holyrics.js?v=1.4.87" pkg/holyrics-copy-script-v1487.js
+          grep -Fq 'holyrics-copy-script-v1487.js?v=1.4.87' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.87' pkg/sw.js
+
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const src=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          const GOOD='f'.repeat(64), OLD='a'.repeat(64);
+          function scenario(name,{stored,clipboard,manual=null,auth=true}){
+            const events=[],outputs=[],saved=[];
+            let inputs=0, confirms=0;
+            const h={
+              restore:()=>stored,
+              store:(key,val)=>saved.push(val),
+              getClipboard:()=>clipboard,
+              confirm:()=>{confirms++;return true},
+              input:()=>{inputs++;return manual},
+              getApiRequestLastError:()=> 'HTTP 401 teste',
+              apiRequest:(url,opt)=>{
+                if(url.includes('action=health'))return JSON.stringify({data:{health:'ok'}});
+                const data=opt.type==='POST'?JSON.parse(opt.data):null;
+                const key=opt.type==='POST'?data.access_key:opt.headers['X-Holyrics-Key'];
+                assert(!url.includes(OLD) && !url.includes(GOOD),'Chave vazou na URL');
+                if(!auth || key!==GOOD)return null;
+                const action=opt.type==='POST'?data.action: new URL(url).searchParams.get('action');
+                if(action==='services')return JSON.stringify({data:{services:[{id:'e1',data:'2026-10-24',culto:'Culto da Família',horario:'19:00'}]}});
+                if(action==='songs')return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                throw new Error('unexpected action '+action);
+              },
+              itemChooser:(_,list)=>list[0],
+              hly:(action,params)=>{
+                events.push(action);
+                return action==='SearchSong'?{data:[{id:1,title:'Bondade de Deus'}]}:{ok:true};
+              },
+              ok:(m)=>outputs.push(String(m)),
+              error:(m)=>outputs.push(String(m)),
+              log:()=>{}
+            };
+            const ctx={h};vm.createContext(ctx);
+            vm.runInContext(src,ctx);
+            ctx.foo();
+            if(auth && (clipboard===GOOD || manual===GOOD || stored===GOOD)){
+              assert(events.includes('AddLyricsToPlaylist'),name+': expected music import');
+              assert(outputs.some(x=>x.includes('1 de 1')),name+': missing success');
+            }else if(!auth){
+              assert(outputs.some(x=>x.includes('Escala de Propósito')),name+': missing clear error');
+            }else{
+              assert(!events.includes('AddLyricsToPlaylist'),name+': should not import');
+            }
+            console.log(name,'OK',JSON.stringify({inputs,confirms,imports:events.length,stored:saved.length}));
+          }
+          scenario('Chave copiada e cache vazio',{stored:'',clipboard:GOOD});
+          scenario('Chave incompleta no computador',{stored:'abc',clipboard:GOOD});
+          scenario('Chave antiga revogada, nova no clipboard',{stored:OLD,clipboard:GOOD});
+          scenario('Entrada manual correta',{stored:'',clipboard:'',manual:GOOD});
+          scenario('Operador cancela',{stored:'',clipboard:'',manual:null});
+          scenario('Chave manual inválida',{stored:'',clipboard:'',manual:'texto'});
+          NODE
+
+      - name: Build artifacts
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/ATUALIZACAO-v1.4.87.md holyrics-pacote/
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.6.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.6.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.6.zip > SHA256-v1.4.87.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.87 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-connect-v1.0.6.zip SHA256-v1.4.87.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.87 — Holyrics Chave Copiada' \
+            --notes-file pkg/ATUALIZACAO-v1.4.87.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.87
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.6.zip
+            SHA256-v1.4.87.txt
+          retention-days: 30
