@@ -63,7 +63,12 @@ function foo() {
     }
     var token = normalizeKey(h.restore(storageKey));
     if (!keyIsValid(token)) {
-        token = getNewKey(true);
+        try {
+            token = getNewKey(true);
+        } catch (e) {
+            h.error('Escala de Propósito: ' + String(e.message || e));
+            return;
+        }
         if (token == null) return;
         h.store(storageKey, token);
     }
