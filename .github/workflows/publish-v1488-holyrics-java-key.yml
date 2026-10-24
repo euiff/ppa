@@ -1,0 +1,139 @@
+name: Publish Escala de Proposito v1.4.88 Holyrics Java Key Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1488-holyrics-java-key.yml'
+      - 'scripts/patch-v1488-holyrics-java-key.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.87 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'dff57b26b689cc914420d32af8310640956b345590ef955ac39027c70ee6a7db  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.87"
+
+      - name: Apply corrected Holyrics key normalization
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1488-holyrics-java-key.py
+          python3 scripts/patch-v1488-holyrics-java-key.py
+
+      - name: Validate JavaScript and PHP
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.88"
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1488.js
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'java.lang.String' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'h.getClipboard()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'function scriptAction(obj)' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'script-v1488.js?v=1.4.88' pkg/holyrics-connect.html
+          grep -Fq '/Escala-de-Proposito-Holyrics.js?v=1.4.88' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.88' pkg/sw.js
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.88"' pkg/sistema.html
+
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const source=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          const GOOD='b'.repeat(64), OLD='a'.repeat(64);
+          function scenario(name, args) {
+            const events=[], messages=[], stored=[];
+            let prompted=0, confirmations=0;
+            const h={
+              restore:()=>args.saved,
+              store:(k,v)=>stored.push(v),
+              getClipboard:()=>args.clipboard,
+              input:()=>{prompted++;return args.manual===undefined?null:args.manual},
+              confirm:()=>{confirmations++;return true},
+              getApiRequestLastError:()=> 'HTTP 401',
+              apiRequest:(url,opts)=>{
+                assert(!url.includes(GOOD)&&!url.includes(OLD),'Secret leaked to URL');
+                if(url.includes('action=health'))return JSON.stringify({data:{health:'ok'}});
+                const posted=opts.type==='POST';
+                const body=posted?JSON.parse(opts.data):{};
+                const key=posted?body.access_key:opts.headers['X-Holyrics-Key'];
+                if(key!==GOOD)return null;
+                const action=posted?body.action:new URL(url).searchParams.get('action');
+                if(action==='services')return JSON.stringify({data:{services:[{id:'svc1',data:'2026-10-25',culto:'Culto da Família',horario:'19:00'}]}});
+                if(action==='songs')return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                throw Error('Invalid action '+action);
+              },
+              hly:(action,params)=>{
+                events.push(action);
+                if(action==='SearchSong')return {data:[{id:13,title:'Bondade de Deus'}]};
+                return {ok:true};
+              },
+              itemChooser:(title,choices)=>choices[0],
+              ok:m=>messages.push(String(m)),
+              error:m=>messages.push(String(m)),
+              log:m=>messages.push(String(m))
+            };
+            const ctx={h};vm.createContext(ctx);vm.runInContext(source,ctx);ctx.foo();
+            if(args.success){
+              assert(events.includes('SearchSong')&&events.includes('AddLyricsToPlaylist'),name+' no songs imported');
+              assert(messages.some(m=>m.includes('1 de 1')),name+' missing result');
+            } else {
+              assert(!events.includes('AddLyricsToPlaylist'),name+' imported unexpectedly');
+            }
+            assert(!messages.join(' ').includes(GOOD),name+' leaked secret');
+            console.log(name+': OK');
+          }
+          const javaText=(v)=>({toString:()=>v});
+          scenario('Clipboard java.lang.String',{saved:null,clipboard:javaText(GOOD),success:true});
+          scenario('Manual input java.lang.String',{saved:'',clipboard:'',manual:javaText(GOOD),success:true});
+          scenario('Clipboard quoted and spaced',{saved:'',clipboard:javaText(' "'+GOOD+'\n" '),success:true});
+          scenario('Stored java.lang.String',{saved:javaText(GOOD),clipboard:'',success:true});
+          scenario('Old valid-length secret replaced',{saved:OLD,clipboard:javaText(GOOD),success:true});
+          scenario('Wrong length manual secret',{saved:'',clipboard:'',manual:'123',success:false});
+          scenario('Cancelled prompt',{saved:'',clipboard:'',manual:null,success:false});
+          NODE
+
+      - name: Package and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/ATUALIZACAO-v1.4.88.md holyrics-pacote/
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.7.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.7.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.7.zip > SHA256-v1.4.88.txt
+          gh release create v1.4.88 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-connect-v1.0.7.zip SHA256-v1.4.88.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.88 — Holyrics Chave Java' \
+            --notes-file pkg/ATUALIZACAO-v1.4.88.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.88
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.7.zip
+            SHA256-v1.4.88.txt
+          retention-days: 30
