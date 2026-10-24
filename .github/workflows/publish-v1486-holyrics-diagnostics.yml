@@ -1,0 +1,118 @@
+name: Publish Escala de Proposito v1.4.86 Holyrics Full Diagnostics
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1486-holyrics-diagnostics.yml'
+      - 'scripts/patch-v1486-holyrics-diagnostics.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.85 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.85 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'f8108d861cce659046f149fb2b055263d6bd7353a7916acfcae60cfae66ab5ba  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.85"
+
+      - name: Apply Holyrics diagnostic corrections
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1486-holyrics-diagnostics.py
+          python3 scripts/patch-v1486-holyrics-diagnostics.py
+
+      - name: Validate source and safety
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.86"
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1486.js
+          node --check pkg/holyrics-entry-v1481.js
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-core-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq "/Escala-de-Proposito-Holyrics.js?v=1.4.86" pkg/holyrics-copy-script-v1486.js
+          grep -Fq 'Testar chave + consulta de cultos' pkg/holyrics-copy-script-v1486.js
+          grep -Fq "body:JSON.stringify({action:'services',access_key:key})" pkg/holyrics-copy-script-v1486.js
+          grep -Fq 'function scriptAction(obj)' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'function foo()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'h.log(' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'Referência:' pkg/api/holyrics-repertoire-v1481.php
+          grep -Fq '/holyrics-copy-script-v1486.js?v=1.4.86' pkg/holyrics-connect.html
+          grep -Fq '/Escala-de-Proposito-Holyrics.js?v=1.4.86' pkg/holyrics-connect.html
+          ! grep -Fq 'holyrics-copy-script-v1485.js?v=1.4.85' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.86' pkg/sw.js
+
+          node <<'NODE'
+          const vm=require('vm'),fs=require('fs'),assert=require('assert');
+          const source=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          const calls=[],logs=[], old='a'.repeat(64);
+          const h={
+            restore:()=>old,store:()=>{},input:()=>old,
+            apiRequest:(url,opt)=>{
+              calls.push([url,opt.type||'GET']);
+              if(url.includes('action=health'))return JSON.stringify({data:{health:'ok'}});
+              if(url.includes('action=services') || (opt.type==='POST' && JSON.parse(opt.data).action==='services'))
+                return JSON.stringify({data:{services:[{id:'e1',data:'2026-10-24',culto:'Culto',horario:'19:00'}]}});
+              return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+            },
+            getApiRequestLastError:()=>null,
+            itemChooser:(_,values)=>values[0],confirm:()=>true,
+            hly:(action,params)=>{calls.push([action,params]);return action==='SearchSong'?{data:[{id:1,title:'Bondade de Deus'}]}:{ok:true}},
+            ok:msg=>logs.push(String(msg)),error:msg=>logs.push(String(msg)),log:msg=>logs.push(String(msg))
+          };
+          const context={h};vm.createContext(context);vm.runInContext(source,context);context.foo();
+          assert(calls.some(x=>x[0]==='AddLyricsToPlaylist'));
+          assert(logs.some(x=>x.includes('1 de 1')));
+          assert.equal(typeof context.scriptAction,'function');
+          console.log('Holyrics simulation: OK');
+          NODE
+
+      - name: Build packages
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/GUIA-HOLYRICS-v1.4.81.md holyrics-pacote/LEIA-ME.md
+          cp pkg/ATUALIZACAO-v1.4.86.md holyrics-pacote/
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.5.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.5.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.5.zip > SHA256-v1.4.86.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.86 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-connect-v1.0.5.zip SHA256-v1.4.86.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.86 — Holyrics Diagnóstico' \
+            --notes-file pkg/ATUALIZACAO-v1.4.86.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.86
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.5.zip
+            SHA256-v1.4.86.txt
+          retention-days: 30
