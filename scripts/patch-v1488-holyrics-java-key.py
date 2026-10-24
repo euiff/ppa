@@ -84,7 +84,7 @@ p.write_text(h,encoding='utf-8')
 
 p=root/'sistema.html'
 h=p.read_text(encoding='utf-8')
-h,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\\.js)(?:\\?[^"]*)?(")',
+h,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',
   lambda m:m.group(1)+'?v=1.4.88'+m.group(2),h,count=1)
 if n!=1:raise SystemExit('Main frontend asset anchor missing')
 for name in ['holyrics-entry-v1481.js','app-notifications-v1465.js',
@@ -94,7 +94,7 @@ p.write_text(h,encoding='utf-8')
 
 p=root/'sw.js'
 sw=p.read_text(encoding='utf-8')
-sw=re.sub(r'^/\\* escala-version:[^*]+\\*/\\n?','',sw,count=1)
+sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
 p.write_text('/* escala-version:1.4.88 */\n'+sw,encoding='utf-8')
 (root/'VERSION').write_text('1.4.88\n',encoding='utf-8')
 (root/'ATUALIZACAO-v1.4.88.md').write_text("""# Escala de Propósito v1.4.88 — Holyrics com chave Java
