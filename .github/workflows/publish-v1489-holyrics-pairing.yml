@@ -1,0 +1,138 @@
+name: Publish Escala de Proposito v1.4.89 Holyrics Pairing
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1489-holyrics-pairing.yml'
+      - 'scripts/patch-v1489-holyrics-pairing.py'
+      - 'runtime/v1489/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.88 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.88 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '2d6bf9f317fe13c23c12fe4f897f21db4b4f9d0648a959a5a9c0f902f2b54503  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.88"
+
+      - name: Apply short-code Holyrics pairing
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1489-holyrics-pairing.py
+          python3 scripts/patch-v1489-holyrics-pairing.py
+
+      - name: Validate server and client
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.89"
+          php -l pkg/api/holyrics-pairing-v1489.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1489.js
+          node --check pkg/holyrics-pair-ui-v1489.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'function edp_pair_redeem' pkg/api/holyrics-pairing-v1489.php
+          grep -Fq 'function edp_pair_issue' pkg/api/holyrics-pairing-v1489.php
+          grep -Fq 'SELECT id,igreja_id FROM holyrics_pairings' pkg/api/holyrics-pairing-v1489.php
+          grep -Fq 'FOR UPDATE' pkg/api/holyrics-pairing-v1489.php
+          grep -Fq "hash('sha256',\$code)" pkg/api/holyrics-pairing-v1489.php
+          grep -Fq "if(\$action==='pair_start')" pkg/api/holyrics-connect-v1481.php
+          grep -Fq "if(\$action==='pair')" pkg/api/holyrics-repertoire-v1481.php
+          grep -Fq 'function pairNow()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'pairing_code:code' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'function scriptAction(obj)' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'Gerar código de conexão' pkg/holyrics-pair-ui-v1489.js
+          grep -Fq '/holyrics-pair-ui-v1489.js?v=1.4.89' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.89' pkg/sw.js
+
+          node <<'NODE'
+          const vm=require('vm'),fs=require('fs'),assert=require('assert');
+          const src=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          const good='a'.repeat(64),old='b'.repeat(64),code='ABCD-EFGH-JKLM';
+          function trial(mode){
+            let prompts=0,pairs=0,success=0;const actions=[],messages=[],saves=[];
+            const h={
+              restore:()=> mode==='valid-old'||mode==='revoked'?old:'',
+              store:(k,v)=>saves.push(v),
+              input:()=>{prompts++;return mode==='cancel'?null:code;},
+              confirm:()=>true,
+              getApiRequestLastError:()=>null,
+              apiRequest:(url,opt)=>{
+                const obj=(opt.type==='POST')?JSON.parse(opt.data):{};
+                if(obj.action==='pair'){
+                  pairs++;
+                  assert.equal(obj.pairing_code,'ABCDEFGHIJKL');
+                  if(mode==='expired')return JSON.stringify({data:null,error:{message:'Código expirado ou já utilizado'}});
+                  return JSON.stringify({data:{access_key:good},error:null});
+                }
+                if(url.includes('action=health'))return JSON.stringify({data:{health:'ok'}});
+                const key=(opt.type==='POST')?obj.access_key:opt.headers['X-Holyrics-Key'];
+                if(key===old && mode==='valid-old')return JSON.stringify({data:{services:[{id:'culto-1',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+                if(key===old && mode==='revoked')return null;
+                if(key!==good)return null;
+                if(obj.action==='songs'||url.includes('action=songs'))
+                  return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                return JSON.stringify({data:{services:[{id:'culto-1',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+              },
+              itemChooser:(_,items)=>items[0],
+              hly:(action)=>{actions.push(action);return action==='SearchSong'?{data:[{id:1,title:'Bondade de Deus'}]}:{ok:true}},
+              ok:(x)=>messages.push(String(x)),error:(x)=>messages.push(String(x)),log:()=>{}
+            };
+            const ctx={h};vm.createContext(ctx);vm.runInContext(src,ctx);ctx.foo();
+            if(mode==='cancel'||mode==='expired'){
+              assert(!actions.includes('AddLyricsToPlaylist'),mode+': unexpected import');
+            }else{
+              assert(actions.includes('AddLyricsToPlaylist'),mode+': missing import');
+              assert(messages.some(x=>x.includes('1 de 1')));
+            }
+            if(mode==='valid-old'){assert.equal(pairs,0);}else if(mode==='cancel'){assert.equal(pairs,0);}else{assert.equal(pairs,1);}
+            assert(!messages.join(' ').includes(good));
+            console.log(mode,'OK', {prompts,pairs,stored:saves.length});
+          }
+          ['first','valid-old','revoked','expired','cancel'].forEach(trial);
+          NODE
+
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/ATUALIZACAO-v1.4.89.md holyrics-pacote/
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.8.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.8.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.8.zip > SHA256-v1.4.89.txt
+          gh release create v1.4.89 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-connect-v1.0.8.zip SHA256-v1.4.89.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.89 — Holyrics por código curto' \
+            --notes-file pkg/ATUALIZACAO-v1.4.89.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.89
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.8.zip
+            SHA256-v1.4.89.txt
+          retention-days: 30
