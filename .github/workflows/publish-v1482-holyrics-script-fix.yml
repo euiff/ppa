@@ -1,0 +1,160 @@
+name: Publish Escala de Proposito v1.4.82 Holyrics Script Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1482-holyrics-script-fix.yml'
+      - 'runtime/v1482/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.81 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.81 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '7a1276da17bff20f9aabfffb14f5af7c891b50109b322a1de43be98891004b96  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.81"
+
+      - name: Replace Holyrics installer and offer direct code copy
+        run: |
+          set -euo pipefail
+          cp runtime/v1482/Escala-de-Proposito-Holyrics.js pkg/Escala-de-Proposito-Holyrics.js
+          cp runtime/v1482/holyrics-copy-script-v1482.js pkg/
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path('pkg')
+          p=root/'holyrics-connect.html'
+          html=p.read_text(encoding='utf-8')
+          assert 'href="/Escala-de-Proposito-Holyrics.js"' in html, 'download anchor not found'
+          html=html.replace('href="/Escala-de-Proposito-Holyrics.js"', 'href="/Escala-de-Proposito-Holyrics.js?v=1.4.82"', 1)
+          tag='<script src="/holyrics-copy-script-v1482.js?v=1.4.82" defer></script>'
+          assert '</body>' in html
+          html=html.replace('</body>',tag+'</body>',1)
+          p.write_text(html,encoding='utf-8')
+
+          p=root/'sistema.html'
+          html=p.read_text(encoding='utf-8')
+          html,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',
+                          lambda m:m.group(1)+'?v=1.4.82'+m.group(2),
+                          html,count=1)
+          if n!=1:raise SystemExit('main bundle not found')
+          for name in [
+              'holyrics-entry-v1481.js',
+              'app-notifications-v1465.js',
+              'whatsapp-group-settings-v1473.js',
+              'master-whatsapp-groups-entry-v1475.js',
+              'cron-fix-v1478.js'
+          ]:
+              html=html.replace(name+'?v=1.4.81',name+'?v=1.4.82')
+          p.write_text(html,encoding='utf-8')
+
+          p=root/'sw.js'
+          sw=p.read_text(encoding='utf-8')
+          sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
+          p.write_text('/* escala-version:1.4.82 */\n'+sw,encoding='utf-8')
+          (root/'VERSION').write_text('1.4.82\n',encoding='utf-8')
+
+          guide=root/'GUIA-HOLYRICS-v1.4.81.md'
+          if guide.exists():
+              old=guide.read_text(encoding='utf-8')
+              guide.write_text("""## IMPORTANTE — atualização v1.4.82
+          O erro `Expected an operand but found else` ocorre quando o script é
+          colado depois de código de exemplo que já existia no editor.
+
+          No Escala de Propósito: Integração Holyrics > Copiar código completo e corrigido.
+          No computador: abra o editor JavaScript do Holyrics, clique no painel ESQUERDO,
+          pressione Ctrl+A e Delete. Cole o código novo inteiro; clique Testar e Salvar.
+          O painel direito (Funções adicionais) pode permanecer inalterado.
+
+          A atualização do site disponibiliza o código corrigido, mas NÃO modifica
+          automaticamente scripts que já estão salvos no computador com Holyrics.
+          Para atualizar o script previamente instalado é necessário substituí-lo no Holyrics
+          uma vez. Não é necessário gerar uma nova chave da igreja.
+
+          """+old,encoding='utf-8')
+          PY
+
+          cat > pkg/ATUALIZACAO-v1.4.82.md <<'EOF'
+          # Escala de Propósito v1.4.82 — Correção do instalador Holyrics
+          - O sistema passa a disponibilizar o script Holyrics v1.0.1 sem fragmentos de exemplos.
+          - Na Integração Holyrics aparece a opção **Copiar código completo e corrigido**.
+          - Instruções visíveis para substituir todo o código do painel esquerdo do editor
+            (sem deixá-lo abaixo do exemplo), corrigindo o erro "Expected an operand but found else".
+          - O link de download usa ?v=1.4.82 para evitar abrir arquivos antigos em cache.
+          - Módulo Holyrics, escalas, WhatsApp, notificações, CRON e app mantidos.
+          - IMPORTANTE: atualizar o site NÃO substitui o script já instalado no Holyrics;
+            o operador deve colar a nova versão uma vez no editor local.
+          EOF
+
+      - name: Validate Holyrics Connect v1.0.1 and app
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.82"
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1482.js
+          node --check pkg/holyrics-entry-v1481.js
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'function foo()' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics.js
+          if grep -Fq 'MediaPlaylistAction' pkg/Escala-de-Proposito-Holyrics.js; then exit 1; fi
+          grep -Fq 'Copiar código completo e corrigido' pkg/holyrics-copy-script-v1482.js
+          grep -Fq '/holyrics-copy-script-v1482.js?v=1.4.82' pkg/holyrics-connect.html
+          grep -Fq '/Escala-de-Proposito-Holyrics.js?v=1.4.82' pkg/holyrics-connect.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.82"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.82' pkg/sw.js
+
+      - name: Build release packages
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/GUIA-HOLYRICS-v1.4.81.md holyrics-pacote/LEIA-ME.md
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.1.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.1.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.1.zip > SHA256-v1.4.82.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.82 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.82 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            holyrics-connect-v1.0.1.zip \
+            SHA256-v1.4.82.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.82 — Holyrics corrigido' \
+            --notes-file pkg/ATUALIZACAO-v1.4.82.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.82
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.1.zip
+            SHA256-v1.4.82.txt
+          retention-days: 30
