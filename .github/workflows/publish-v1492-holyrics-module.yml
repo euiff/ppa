@@ -1,0 +1,159 @@
+name: Publish Escala de Proposito v1.4.92 Holyrics Module
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1492-holyrics-module.yml'
+      - 'scripts/patch-v1492-holyrics-modules.py'
+      - 'runtime/v1492/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and verify v1.4.91 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg base
+          gh release download v1.4.91 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '0403e819d071c3d8a4c8718f4fcd02bdd9abed1310892e8ba0fddaa8d6f36357  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.91"
+
+      - name: Install Holyrics Module
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1492-holyrics-modules.py
+          python3 scripts/patch-v1492-holyrics-modules.py
+
+      - name: Validate version, syntax, permissions and module behavior
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.92"
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          node --check pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          node --check pkg/holyrics-module-generator-v1492.js
+          node --check pkg/holyrics-ready-v1491.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq "if(\$action==='ready_module')" pkg/api/holyrics-connect-v1481.php
+          grep -Fq "require_auth()" pkg/api/holyrics-connect-v1481.php
+          grep -Fq "edp_hly_allowed_church" pkg/api/holyrics-connect-v1481.php
+          grep -Fq "hash('sha256',\$newToken)" pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'Cache-Control: private, no-store' pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'Gerar e copiar módulo Holyrics' pkg/holyrics-module-generator-v1492.js
+          grep -Fq "action:'ready_module'" pkg/holyrics-module-generator-v1492.js
+          grep -Fq 'function info()' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'function actions(module)' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          ! grep -Fq 'function scriptAction' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'allowed_requests' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq '/holyrics-module-generator-v1492.js?v=1.4.92' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.92' pkg/sw.js
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.92"' pkg/sistema.html
+
+          node <<'NODE'
+          const fs=require('fs'), vm=require('vm'), assert=require('assert');
+          const source=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics-Modulo.js','utf8');
+          const marker='ESCALA_MODULO_TOKEN_SUBSTITUIR_NO_SERVIDOR';
+          const token='e'.repeat(64);
+          assert.equal(source.split(marker).length-1,1,'Token placeholder not unique');
+          const privateModule=source.replace(marker,token);
+          function scenario(mode){
+            const api=[], hly=[], messages=[];
+            const fake={
+              apiRequest:(url,req)=>{
+                assert(!url.includes(token),'Private token in URL');
+                api.push({url,method:req.type});
+                if(mode==='blocked')return null;
+                if(mode==='post'&&req.type==='GET')return null;
+                if(req.type==='POST'){
+                  const d=JSON.parse(req.data);
+                  assert.equal(d.access_key,token);
+                  if(d.action==='songs')return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                  return JSON.stringify({data:{services:[{id:'church-service',data:'2026-10-25',culto:'Culto da Familia',horario:'19:00'}]}});
+                }
+                assert.equal(req.headers['X-Holyrics-Key'],token);
+                if(url.includes('action=songs'))return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+                return JSON.stringify({data:{services:[{id:'church-service',data:'2026-10-25',culto:'Culto da Familia',horario:'19:00'}]}});
+              },
+              hly:(action,params)=>{
+                hly.push(action);
+                if(action==='SearchSong')return {data:[{id:30,title:'Bondade de Deus'}]};
+                return {ok:true};
+              },
+              itemChooser:(label,options)=>options[0],
+              confirm:()=>true,
+              ok:m=>messages.push(String(m)),
+              error:m=>messages.push('ERROR:'+m)
+            };
+            const ctx={h:fake};
+            vm.createContext(ctx);
+            vm.runInContext(privateModule,ctx);
+            const info=ctx.info();
+            assert.equal(info.id,'escala-de-proposito-holyrics-connect');
+            assert.equal(info.available_in_main_window,true);
+            assert(Array.isArray(info.allowed_requests));
+            const actions=ctx.actions({id:'module-test'});
+            assert.equal(actions.length,1);
+            assert.equal(actions[0].id,'importar_repertorio');
+            assert.equal(typeof actions[0].action,'function');
+            actions[0].action({});
+            if(mode==='blocked'){
+              assert(messages.some(x=>x.includes('ERROR:')));
+              assert.equal(hly.length,0);
+            }else{
+              assert(hly.includes('SearchSong'));
+              assert(hly.includes('AddLyricsToPlaylist'));
+              assert(messages.some(x=>x.includes('1 de 1')));
+              assert(api.length>=2);
+            }
+            assert(!messages.join(' ').includes(token),'Private token in alert');
+            console.log('Holyrics module scenario',mode,'OK');
+          }
+          ['get','post','blocked'].forEach(scenario);
+          NODE
+
+      - name: Package update and public template
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-template
+          cp pkg/Escala-de-Proposito-Holyrics-Modulo.js holyrics-template/
+          cp pkg/ATUALIZACAO-v1.4.92.md holyrics-template/
+          (cd holyrics-template && zip -qr ../holyrics-modulo-template-v1.2.0.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-modulo-template-v1.2.0.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-modulo-template-v1.2.0.zip > SHA256-v1.4.92.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.92 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-modulo-template-v1.2.0.zip SHA256-v1.4.92.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.92 — Módulo Holyrics por Igreja' \
+            --notes-file pkg/ATUALIZACAO-v1.4.92.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.92
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-modulo-template-v1.2.0.zip
+            SHA256-v1.4.92.txt
+          retention-days: 30
