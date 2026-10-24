@@ -1,0 +1,142 @@
+name: Publish Escala de Proposito v1.4.91 Holyrics Ready Script
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1491-holyrics-ready.yml'
+      - 'scripts/patch-v1491-holyrics-ready-code.py'
+      - 'runtime/v1491/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified prior package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.90 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '21bed6ffc877cca13cb3d098b4da1841c2ca6e4b012e7d64077f2f864e175456  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.90"
+
+      - name: Patch Holyrics generate-and-copy code
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1491-holyrics-ready-code.py
+          python3 scripts/patch-v1491-holyrics-ready-code.py
+
+      - name: Validate scripts and security
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.91"
+          node --check pkg/Escala-de-Proposito-Holyrics-Pronto.js
+          node --check pkg/holyrics-ready-v1491.js
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-core-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq "if(\$action==='ready_script')" pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'edp_hly_allowed_church' pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'require_auth()' pkg/api/holyrics-connect-v1481.php
+          grep -Fq "hash('sha256',\$newToken)" pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'Gerar e copiar código completo' pkg/holyrics-ready-v1491.js
+          grep -Fq 'action: ' pkg/holyrics-ready-v1491.js
+          grep -Fq '/holyrics-ready-v1491.js?v=1.4.91' pkg/holyrics-connect.html
+          ! grep -Fq 'function scriptAction' pkg/Escala-de-Proposito-Holyrics-Pronto.js
+          grep -Fq 'function foo()' pkg/Escala-de-Proposito-Holyrics-Pronto.js
+          grep -Fq 'ESCALA_TOKEN_SUBSTITUIR_NO_SERVIDOR' pkg/Escala-de-Proposito-Holyrics-Pronto.js
+          grep -Fq 'escala-version:1.4.91' pkg/sw.js
+
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const templ=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics-Pronto.js','utf8');
+          const marker='ESCALA_TOKEN_SUBSTITUIR_NO_SERVIDOR';
+          const token='c'.repeat(64);
+          assert.equal(templ.split(marker).length-1,1,'placeholder must occur exactly once');
+          const privateCode=templ.replace(marker,token);
+          assert(!privateCode.includes(marker));
+          assert(!privateCode.includes('function scriptAction'));
+          const events=[],calls=[],messages=[];
+          const mock={
+            apiRequest:(url,req)=>{
+              calls.push([url,req.type]);
+              assert(!url.includes(token),'Secret leaked through URL');
+              assert.equal(req.headers['Authorization'],'Bearer '+token);
+              if(url.includes('action=services')) return JSON.stringify({data:{services:[{id:'c1',data:'2026-10-25',culto:'Culto da Família',horario:'19:00'}]}});
+              if(url.includes('action=songs')) return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+              throw Error('Unsupported request');
+            },
+            hly:(action)=>{events.push(action);return action==='SearchSong'?{data:[{id:41,title:'Bondade de Deus'}]}:{ok:true};},
+            itemChooser:(_,list)=>list[0],confirm:()=>true,ok:s=>messages.push(s),error:s=>{throw Error(s)}
+          };
+          const ctx={h:mock};vm.createContext(ctx);vm.runInContext(privateCode,ctx);
+          assert.equal(typeof ctx.foo,'function');
+          assert.equal(typeof ctx.scriptAction,'undefined');
+          ctx.foo();
+          assert(events.includes('SearchSong'));
+          assert(events.includes('AddLyricsToPlaylist'));
+          assert(messages.some(s=>String(s).includes('1 de 1')));
+          assert.equal(calls.length,2);
+          console.log('ready-script import: OK');
+
+          const fallbackCalls=[];
+          const h={
+            apiRequest:(url,req)=>{
+              fallbackCalls.push(req);
+              if(req.type==='GET')return null;
+              assert.equal(req.type,'POST');
+              const json=JSON.parse(req.data);
+              assert.equal(json.access_key,token);
+              if(json.action==='services') return JSON.stringify({data:{services:[{id:'c2',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+              return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]}});
+            },
+            hly:mock.hly,itemChooser:mock.itemChooser,confirm:mock.confirm,ok:mock.ok,error:mock.error
+          };
+          const ctx2={h};vm.createContext(ctx2);vm.runInContext(privateCode,ctx2);ctx2.foo();
+          assert.equal(fallbackCalls.filter(r=>r.type==='POST').length,2);
+          console.log('ready-script POST fallback: OK');
+          NODE
+
+      - name: Create distributables
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          # The module-only package is a PUBLIC TEMPLATE without private keys.
+          mkdir -p holyrics-template
+          cp pkg/Escala-de-Proposito-Holyrics-Pronto.js holyrics-template/
+          cp pkg/ATUALIZACAO-v1.4.91.md holyrics-template/
+          (cd holyrics-template && zip -qr ../holyrics-pronto-template-v1.1.0.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-pronto-template-v1.1.0.zip > SHA256-v1.4.91.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.91 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-pronto-template-v1.1.0.zip SHA256-v1.4.91.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.91 — Holyrics código pronto por igreja' \
+            --notes-file pkg/ATUALIZACAO-v1.4.91.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.91
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-pronto-template-v1.1.0.zip
+            SHA256-v1.4.91.txt
+          retention-days: 30
