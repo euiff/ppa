@@ -1,0 +1,137 @@
+name: Publish Escala de Proposito v1.4.93 Holyrics Song Search
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1493-holyrics-song-search.yml'
+      - 'scripts/patch-v1493-holyrics-song-search.py'
+      - 'runtime/v1493/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified v1.4.92 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg base
+          gh release download v1.4.92 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '71c3ed4748df084486ef97a5acfdd44f0c2a6d0324646ba94cff52ab9dc49754  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.92"
+      - name: Apply Holyrics library and title matching update
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1493-holyrics-song-search.py
+          python3 scripts/patch-v1493-holyrics-song-search.py
+      - name: Validate module and scenario tests
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.93"
+          node --check pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          node --check pkg/holyrics-module-generator-v1492.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'GetSongs' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'edp_normalizar_nome' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'edp_procurar_musica' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq "module_version'=>'v1.3.0'" pkg/api/holyrics-connect-v1481.php
+          grep -Fq '/holyrics-module-generator-v1492.js?v=1.4.93' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.93' pkg/sw.js
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const src=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics-Modulo.js','utf8');
+          const token='e'.repeat(64);
+          const template='ESCALA_MODULO_TOKEN_SUBSTITUIR_NO_SERVIDOR';
+          assert.equal(src.split(template).length-1,1);
+          const code=src.replace(template,token);
+          const repertoire=[
+            {titulo:'Hino da Vitória'},
+            {titulo:'Oceanos (Onde Meus Pés Podem Falhar)'},
+            {titulo:'Bondade de Deus'}
+          ];
+          function scenario(name,library,expectedImports,expectedMessage,choose){
+            const actions=[],msgs=[],requests=[],chooserCalls=[];
+            const fake={
+              apiRequest:(url,opts)=>{
+                assert(!url.includes(token));
+                requests.push(url);
+                if(url.includes('action=services'))return JSON.stringify({data:{services:[{id:'one',data:'2026-10-25',culto:'Culto',horario:'19:00'}]}});
+                if(url.includes('action=songs'))return JSON.stringify({data:{songs:repertoire}});
+                throw Error('Unknown URL');
+              },
+              hly:(action,opts)=>{
+                actions.push({action,opts});
+                if(action==='GetSongs')return {data:library};
+                if(action==='SearchLyrics')return {data:[]};
+                if(action==='AddLyricsToPlaylist')return {ok:true};
+                throw Error('Unexpected HLY '+action);
+              },
+              itemChooser:(title,list)=>{chooserCalls.push(title);return choose&&title.includes('versao')?choose(list):list[0]},
+              confirm:()=>true,
+              ok:msg=>msgs.push(msg),
+              error:msg=>msgs.push('ERROR: '+msg)
+            };
+            const ctx={h:fake};vm.createContext(ctx);vm.runInContext(code,ctx);
+            assert.equal(typeof ctx.info,'function');
+            const action=ctx.actions({id:'test'})[0].action;
+            action({});
+            const imported=actions.filter(x=>x.action==='AddLyricsToPlaylist');
+            assert.equal(imported.length,expectedImports, name+' imports');
+            assert(msgs.some(x=>x.includes(expectedMessage)),name+' message '+JSON.stringify(msgs));
+            assert(!msgs.join(' ').includes(token),'Secret leaked');
+            console.log(name+' OK, imported: '+imported.length);
+          }
+          scenario('empty library',[],0,'biblioteca de letras deste Holyrics esta vazia');
+          scenario('accent and alternate title',[
+            {id:1,title:'Hino da Vitoria'},
+            {id:2,title:'Oceanos'},
+            {id:3,title:'Bondade de Deus'}
+          ],3,'Adicionadas ao Holyrics: 3.');
+          scenario('one song missing',[
+            {id:3,title:'Bondade de Deus'}
+          ],1,'Letras ainda nao encontradas:');
+          scenario('two versions require operator choice',[
+            {id:1,title:'Hino da Vitoria',artist:'A'},
+            {id:2,title:'Hino da Vitória',artist:'B'},
+            {id:3,title:'Oceanos'},
+            {id:4,title:'Bondade de Deus'}
+          ],3,'Adicionadas ao Holyrics: 3.',a=>a[1]);
+          NODE
+      - name: Build archives
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-template
+          cp pkg/Escala-de-Proposito-Holyrics-Modulo.js holyrics-template/
+          cp pkg/ATUALIZACAO-v1.4.93.md holyrics-template/
+          (cd holyrics-template && zip -qr ../holyrics-modulo-template-v1.3.0.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-modulo-template-v1.3.0.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-modulo-template-v1.3.0.zip > SHA256-v1.4.93.txt
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.93 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-modulo-template-v1.3.0.zip SHA256-v1.4.93.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.93 — Holyrics busca de músicas' \
+            --notes-file pkg/ATUALIZACAO-v1.4.93.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.93
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-modulo-template-v1.3.0.zip
+            SHA256-v1.4.93.txt
+          retention-days: 30
