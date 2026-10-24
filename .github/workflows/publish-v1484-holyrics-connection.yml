@@ -1,0 +1,215 @@
+name: Publish Escala de Proposito v1.4.84 Holyrics Connection Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1484-holyrics-connection.yml'
+      - 'runtime/v1484/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified v1.4.83 base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base pkg
+          gh release download v1.4.83 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo 'e8ce46701da28b655e4cf11f41cce9d5d8089ac7d7d68e5e99b84e494504800c  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.83"
+
+      - name: Install improved Holyrics connection and diagnostic
+        run: |
+          set -euo pipefail
+          cp runtime/v1484/Escala-de-Proposito-Holyrics.js pkg/Escala-de-Proposito-Holyrics.js
+          cp runtime/v1484/holyrics-copy-script-v1484.js pkg/
+          cp runtime/v1484/api/holyrics-repertoire-v1481.php pkg/api/holyrics-repertoire-v1481.php
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg')
+          p=root/'holyrics-connect.html'
+          html=p.read_text(encoding='utf-8')
+          prev='holyrics-copy-script-v1483.js?v=1.4.83'
+          assert html.count(prev)==1, 'previous code copy script missing'
+          html=html.replace(prev,'holyrics-copy-script-v1484.js?v=1.4.84',1)
+          old_dl='/Escala-de-Proposito-Holyrics.js?v=1.4.83'
+          assert html.count(old_dl)==1, 'previous download link missing'
+          html=html.replace(old_dl,'/Escala-de-Proposito-Holyrics.js?v=1.4.84',1)
+          p.write_text(html,encoding='utf-8')
+
+          p=root/'sistema.html'
+          html=p.read_text(encoding='utf-8')
+          html,n=re.subn(r'(<script[^>]+src="/assets/index-[^"?]+\.js)(?:\?[^"]*)?(")',
+              lambda m:m.group(1)+'?v=1.4.84'+m.group(2),html,count=1)
+          if n!=1: raise SystemExit('main bundle not found')
+          for name in ['holyrics-entry-v1481.js','app-notifications-v1465.js',
+              'whatsapp-group-settings-v1473.js','master-whatsapp-groups-entry-v1475.js',
+              'cron-fix-v1478.js']:
+              html=html.replace(name+'?v=1.4.83',name+'?v=1.4.84')
+          p.write_text(html,encoding='utf-8')
+
+          p=root/'sw.js'
+          sw=p.read_text(encoding='utf-8')
+          sw=re.sub(r'^/\* escala-version:[^*]+\*/\n?','',sw,count=1)
+          p.write_text('/* escala-version:1.4.84 */\n'+sw,encoding='utf-8')
+          (root/'VERSION').write_text('1.4.84\n',encoding='utf-8')
+
+          guide=root/'GUIA-HOLYRICS-v1.4.81.md'
+          if guide.exists():
+              txt=guide.read_text(encoding='utf-8')
+              guide.write_text('''## Versão 1.4.84 — Diagnóstico HTTPS / autenticação
+
+          1. Instale a atualização 1.4.84 do Escala de Propósito.
+          2. Abra Integração Holyrics e clique em Testar API neste navegador.
+             Se aparecer um erro, o servidor não está atualizado ou a rota falhou.
+          3. No Holyrics, configure:
+             Arquivo > Configurações > Avançado > JavaScript >
+             Configurações > Requisições permitidas.
+             Autorize escaladeproposito.com.br. Use Holyrics 2.23.0 ou superior.
+          4. Ainda no portal, use Copiar código completo e corrigido.
+             Substitua todo o script do painel ESQUERDO do Holyrics, Testar e Salvar.
+          5. A chave gerada anteriormente continua válida. Só renove caso
+             o diagnóstico indique chave inválida/revogada.
+          6. Se persistir erro, anote o detalhe mostrado pelo Holyrics:
+             "não conseguiu abrir HTTPS" = acesso/servidor;
+             "solicitação autenticada recusada" = chave/cabeçalhos/servidor.
+
+          A API agora também aceita X-Holyrics-Key porque o cPanel pode descartar
+          Authorization na comunicação PHP. A chave não é enviada como parte da URL.
+          O teste health não divulga dados de igreja.
+
+          '''+txt,encoding='utf-8')
+          PY
+
+          cat > pkg/ATUALIZACAO-v1.4.84.md <<'EOF'
+          # Escala de Propósito v1.4.84 — Holyrics: diagnóstico de conexão
+
+          - Corrigida a compatibilidade com cPanel/Apache que descarta Authorization.
+          - API passa a aceitar o cabeçalho seguro X-Holyrics-Key, sem chave na URL.
+          - Rota GET /api/holyrics-repertoire-v1481.php?action=health para teste de conexão (sem informações privadas).
+          - Script Holyrics v1.0.3 identifica se o servidor é acessível e mostra o erro da conexão sem expor a chave.
+          - Na Integração Holyrics: novo botão Testar API neste navegador, download e código atualizado para copiar.
+          - Incluídos testes automatizados para funcionamento da importação, cabeçalhos e diagnóstico de falha.
+          - Para computadores já configurados, substituir o script local do Holyrics mais uma vez após atualizar o site.
+          - Mantidas as funcionalidades do sistema e todas as correções da v1.4.83.
+          EOF
+
+      - name: Validate JS and PHP
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.84"
+          node --check pkg/Escala-de-Proposito-Holyrics.js
+          node --check pkg/holyrics-copy-script-v1484.js
+          node --check pkg/holyrics-entry-v1481.js
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'HTTP_X_HOLYRICS_KEY' pkg/api/holyrics-repertoire-v1481.php
+          grep -Fq "if(\$action==='health')" pkg/api/holyrics-repertoire-v1481.php
+          grep -Fq 'X-Holyrics-Key' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'getApiRequestLastError' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'function scriptAction(obj)' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'AddLyricsToPlaylist' pkg/Escala-de-Proposito-Holyrics.js
+          grep -Fq 'Testar API neste navegador' pkg/holyrics-copy-script-v1484.js
+          grep -Fq '/holyrics-copy-script-v1484.js?v=1.4.84' pkg/holyrics-connect.html
+          grep -Fq '/Escala-de-Proposito-Holyrics.js?v=1.4.84' pkg/holyrics-connect.html
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.84"' pkg/sistema.html
+          grep -Fq 'escala-version:1.4.84' pkg/sw.js
+
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const source=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics.js','utf8');
+          for (const mode of ['success','no_access','no_authorization']) {
+            let actions=[], feedback=[], stores={};
+            const h={
+              restore:k=>stores[k],
+              input:()=> '0123456789abcdef'.repeat(4),
+              store:(k,v)=>{stores[k]=v},
+              apiRequest:(url,opts)=>{
+                assert(opts.type==='GET');
+                if(url.includes('action=health'))
+                  return mode==='no_access'?null:JSON.stringify({data:{health:'ok',version:'1.4.84'},error:null});
+                if(mode!=='success')return null;
+                assert.equal(opts.headers['X-Holyrics-Key'], '0123456789abcdef'.repeat(4));
+                if(url.includes('action=services'))
+                  return JSON.stringify({data:{services:[{id:'test',data:'2026-10-25',culto:'Culto',horario:'19:00'}]},error:null});
+                if(url.includes('action=songs'))
+                  return JSON.stringify({data:{songs:[{titulo:'Bondade de Deus'}]},error:null});
+                throw Error('Unexpected endpoint '+url);
+              },
+              getApiRequestLastError:()=> 'HTTP 401 ou host bloqueado',
+              itemChooser:(label,items)=>items[0],
+              confirm:()=>true,
+              hly:(act)=>{
+                actions.push(act);
+                if(act==='SearchSong')return {data:[{id:42,title:'Bondade de Deus'}]};
+                if(act==='AddLyricsToPlaylist')return {ok:true};
+                throw Error('Unexpected action '+act);
+              },
+              ok:s=>feedback.push(['ok',s]),
+              error:s=>feedback.push(['error',s]),
+            };
+            const ctx={h};vm.createContext(ctx);vm.runInContext(source,ctx);
+            ctx.scriptAction({});
+            if(mode==='success'){
+              assert(actions.includes('SearchSong'));
+              assert(actions.includes('AddLyricsToPlaylist'));
+              assert(feedback.some(x=>x[0]==='ok'&&x[1].includes('1 de 1')));
+            }else if(mode==='no_access'){
+              assert(feedback.some(x=>x[0]==='error'&&x[1].includes('não conseguiu abrir o endereço HTTPS')));
+            }else{
+              assert(feedback.some(x=>x[0]==='error'&&x[1].includes('solicitação autenticada foi recusada')));
+            }
+            console.log(mode+' OK');
+          }
+          NODE
+
+      - name: Build release
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-pacote
+          cp pkg/Escala-de-Proposito-Holyrics.js holyrics-pacote/
+          cp pkg/GUIA-HOLYRICS-v1.4.81.md holyrics-pacote/LEIA-ME.md
+          (cd holyrics-pacote && zip -qr ../holyrics-connect-v1.0.3.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-connect-v1.0.3.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-connect-v1.0.3.zip > SHA256-v1.4.84.txt
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete v1.4.84 --yes --cleanup-tag 2>/dev/null || true
+          gh release create v1.4.84 \
+            escala-de-proposito-cpanel.zip \
+            escalastop-cpanel.zip \
+            holyrics-connect-v1.0.3.zip \
+            SHA256-v1.4.84.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.84 — Holyrics HTTPS' \
+            --notes-file pkg/ATUALIZACAO-v1.4.84.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.84
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-connect-v1.0.3.zip
+            SHA256-v1.4.84.txt
+          retention-days: 30
