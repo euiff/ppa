@@ -96,7 +96,7 @@ jobs:
             if(mode==='cancel'||mode==='expired'){
               assert(!actions.includes('AddLyricsToPlaylist'),mode+': unexpected import');
             }else{
-              assert(actions.includes('AddLyricsToPlaylist'),mode+': missing import');
+              assert(actions.includes('AddLyricsToPlaylist'),mode+': missing import; errors='+JSON.stringify(messages));
               assert(messages.some(x=>x.includes('1 de 1')));
             }
             if(mode==='valid-old'){assert.equal(pairs,0);}else if(mode==='cancel'){assert.equal(pairs,0);}else{assert.equal(pairs,1);}
