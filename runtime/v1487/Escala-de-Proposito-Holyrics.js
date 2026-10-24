@@ -29,7 +29,7 @@ function foo() {
             else if (v.value != null) v = v.value;
             else return '';
         }
-        return String(v).replace(/[\\s\\u200B-\\u200D\\uFEFF]/g, '').toLowerCase();
+        return String(v).replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLowerCase();
     }
     function keyIsValid(v) {
         return /^[a-f0-9]{64}$/.test(String(v));
