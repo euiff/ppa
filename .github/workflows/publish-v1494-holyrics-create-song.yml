@@ -1,0 +1,160 @@
+name: Publish Escala de Proposito v1.4.94 Holyrics Assisted Song Creation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1494-holyrics-create-song.yml'
+      - 'scripts/patch-v1494-holyrics-create-song.py'
+      - 'runtime/v1494/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and verify existing system
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg base
+          gh release download v1.4.93 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '93c8bd0261d259d4d378be1aae3f31ac74fea27242981cfe2b5dbccd9a4f44dd  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.93"
+
+      - name: Install improved Holyrics module
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1494-holyrics-create-song.py
+          python3 scripts/patch-v1494-holyrics-create-song.py
+
+      - name: Validate PHP and JavaScript
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.94"
+          php -l pkg/api/holyrics-core-v1481.php
+          php -l pkg/api/holyrics-repertoire-v1481.php
+          php -l pkg/api/holyrics-connect-v1481.php
+          node --check pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          node --check pkg/holyrics-module-generator-v1494.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'popupCreateSong' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'inputTextArea' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq 'adicionarNaLista(savedId,titulo,true)' pkg/Escala-de-Proposito-Holyrics-Modulo.js
+          grep -Fq "'module_version'=>'v1.4.0'" pkg/api/holyrics-connect-v1481.php
+          grep -Fq 'SHOW COLUMNS FROM musicas' pkg/api/holyrics-core-v1481.php
+          grep -Fq "'letra'=>(string)" pkg/api/holyrics-core-v1481.php
+          grep -Fq 'holyrics-module-generator-v1494.js?v=1.4.94' pkg/holyrics-connect.html
+          grep -Fq 'escala-version:1.4.94' pkg/sw.js
+
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          const source=fs.readFileSync('pkg/Escala-de-Proposito-Holyrics-Modulo.js','utf8');
+          const marker='ESCALA_MODULO_TOKEN_SUBSTITUIR_NO_SERVIDOR',secret='d'.repeat(64);
+          assert.equal(source.split(marker).length-1,1,'Private token placeholder');
+          const code=source.replace(marker,secret);
+          function trial(name,opts){
+            const musicas=opts.songs;
+            let opened=0,saved=0,closed=0,addIds=[],outputs=[],queue=[];
+            const h={
+              apiRequest:(url,req)=>{
+                assert(!url.includes(secret),'secret in URL');
+                if(url.includes('action=services'))return JSON.stringify({data:{services:[{id:'culto',data:'2026-10-25',culto:'Culto da Familia',horario:'19:00'}]}});
+                if(url.includes('action=songs'))return JSON.stringify({data:{songs:musicas}});
+                throw Error('Unknown API '+url);
+              },
+              hly:(action,arg)=>{
+                if(action==='GetSongs')return {data:opts.library};
+                if(action==='SearchLyrics')return {data:[]};
+                if(action==='AddLyricsToPlaylist'){addIds.push(String(arg.id));return {ok:true};}
+                throw Error('Unknown HLY '+action);
+              },
+              itemChooser:(_,items)=>items[0],
+              confirm:()=>opts.confirm!==false,
+              inputTextArea:()=>opts.paste || null,
+              popupCreateSong:(song,callback)=>{
+                opened++;
+                assert(song.title && song.lyrics.length>4);
+                if(opts.defer)queue.push(()=>{closed++;callback(String(100+closed));});
+                else {saved++;callback(String(100+saved));}
+              },
+              ok:s=>outputs.push(String(s)),
+              error:s=>outputs.push('ERROR: '+String(s))
+            };
+            const ctx={h};vm.createContext(ctx);vm.runInContext(code,ctx);
+            const actions=ctx.actions({});actions[0].action({});
+            if(opts.defer){
+              assert.equal(opened,1,'must open only one window');
+              assert.equal(addIds.length,0,'no add until save');
+              while(queue.length) queue.shift()();
+              saved=closed;
+            }
+            assert.equal(opened,opts.popups,name+' popup count');
+            assert.equal(addIds.length,opts.imports,name+' added');
+            assert(outputs.some(x=>x.includes('Adicionadas a playlist: '+opts.imports)),name+' report '+JSON.stringify(outputs));
+            assert(!outputs.join(' ').includes(secret),'no token leak');
+            console.log(name+' OK: created='+opened+', added='+addIds.length);
+          }
+          trial('all songs already installed',{
+            songs:[{titulo:'Oceanos (Onde Meus Pes Podem Falhar)'},{titulo:'Hino da Vitoria'}],
+            library:[{id:'18',title:'Oceanos'},{id:'19',title:'Hino da Vitória'}],
+            popups:0,imports:2
+          });
+          trial('automatic prefilled lyric from Escala',{
+            songs:[{titulo:'Hino da Vitoria',letra:'Letra autorizada da igreja para a musica'}],
+            library:[],defer:true,popups:1,imports:1
+          });
+          trial('manual authorized lyric for missing title',{
+            songs:[{titulo:'Oceanos',artista:'Autor',letra:''}],
+            library:[],paste:'Conteudo autorizado fornecido pelo operador',popups:1,imports:1
+          });
+          trial('no lyric, operator cancels',{
+            songs:[{titulo:'Oceanos',letra:''}],
+            library:[],popups:0,imports:0
+          });
+          trial('existing and new in same repertoire',{
+            songs:[{titulo:'Hino da Vitória',letra:''},{titulo:'Oceanos',letra:'Conteudo autorizado para slides'}],
+            library:[{id:'1',title:'Hino da Vitoria'}],popups:1,imports:2
+          });
+          NODE
+
+      - name: Build archives
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          mkdir -p holyrics-template
+          cp pkg/Escala-de-Proposito-Holyrics-Modulo.js holyrics-template/
+          cp pkg/ATUALIZACAO-v1.4.94.md holyrics-template/
+          (cd holyrics-template && zip -qr ../holyrics-modulo-template-v1.4.0.zip .)
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          unzip -t holyrics-modulo-template-v1.4.0.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip holyrics-modulo-template-v1.4.0.zip > SHA256-v1.4.94.txt
+
+      - name: Publish update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.94 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip \
+            holyrics-modulo-template-v1.4.0.zip SHA256-v1.4.94.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.94 — Holyrics: cadastro assistido de letras' \
+            --notes-file pkg/ATUALIZACAO-v1.4.94.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.94
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            holyrics-modulo-template-v1.4.0.zip
+            SHA256-v1.4.94.txt
+          retention-days: 30
