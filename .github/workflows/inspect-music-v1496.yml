@@ -27,9 +27,12 @@ jobs:
           asset=next((root/'assets').glob('index-*.js'))
           s=asset.read_text()
           print('ASSET',asset.name,'size',len(s))
-          for needle in ('músicas cadastradas','música cadastrada','Repertório','link_spotify','link_cifra','Leão e Cordeiro','from("musicas")'):
+          for needle in (' músicas cadastradas','Música removida!','R&&r.jsxs(zt','H.map('):
               occ=[m.start() for m in re.finditer(re.escape(needle),s)]
               print('TOKEN',repr(needle),'OCCURRENCES',len(occ))
-              for i in occ[:4]:print('CONTEXT',repr(s[max(0,i-1100):i+1500]))
-          print('SCHEMA', [x.name for x in root.iterdir() if x.is_file()][:45])
+              for i in occ[:1]:
+                  print('CONTEXT START',i)
+                  print(s[max(0,i-4000):i+15500])
+          print('ROOT ASSETS', [x.name for x in root.iterdir() if x.is_file()][:40])
+          print('MIGRATIONS', [x.name for x in root.rglob('*.sql')][:50])
           PY
