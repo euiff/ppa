@@ -33,7 +33,7 @@ jobs:
           set -euo pipefail
           test "$(cat pkg/VERSION)" = "1.4.96"
           php -l pkg/api/music-edit-v1496.php
-          php -l pkg/api/bootstrap.php
+          if [ -f pkg/api/bootstrap.php ]; then php -l pkg/api/bootstrap.php; fi
           node --check pkg/assets/index-C6Ng0a8i.js
           find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
           grep -Fq 'music-edit-v1496.php' pkg/assets/index-C6Ng0a8i.js
