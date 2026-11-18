@@ -1,0 +1,35 @@
+name: Inspect music editor anchors for v1.4.96
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/inspect-music-v1496.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect current package (no user data)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg
+          gh release download v1.4.95 -p escala-de-proposito-cpanel.zip --dir /tmp --clobber
+          echo '82b5d3a93a1f221fb9ebe7091eb4d34b1ca81210e77d89a4e28a9eaeb46265a8  /tmp/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q /tmp/escala-de-proposito-cpanel.zip -d pkg
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('pkg')
+          print('BACKEND FILES:',[x.name for x in (root/'api').glob('*.php') if any(k in x.name for k in ('music','mus','supabase','rls','auth'))])
+          asset=next((root/'assets').glob('index-*.js'))
+          s=asset.read_text()
+          print('ASSET',asset.name,'size',len(s))
+          for needle in ('músicas cadastradas','música cadastrada','Repertório','link_spotify','link_cifra','Leão e Cordeiro','from("musicas")'):
+              occ=[m.start() for m in re.finditer(re.escape(needle),s)]
+              print('TOKEN',repr(needle),'OCCURRENCES',len(occ))
+              for i in occ[:4]:print('CONTEXT',repr(s[max(0,i-1100):i+1500]))
+          print('SCHEMA', [x.name for x in root.iterdir() if x.is_file()][:45])
+          PY
