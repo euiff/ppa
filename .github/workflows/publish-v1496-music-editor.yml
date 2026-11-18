@@ -1,0 +1,87 @@
+name: Publicar Escala de Propósito v1.4.96 — Edição de repertório
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v1496-music-editor.yml'
+      - 'scripts/patch-v1496-music-editor.py'
+      - 'runtime/v1496/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recuperar base 1.4.95 verificada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg base
+          gh release download v1.4.95 -p escala-de-proposito-cpanel.zip --dir base --clobber
+          echo '82b5d3a93a1f221fb9ebe7091eb4d34b1ca81210e77d89a4e28a9eaeb46265a8  base/escala-de-proposito-cpanel.zip' | sha256sum --check --strict
+          unzip -q base/escala-de-proposito-cpanel.zip -d pkg
+          test "$(cat pkg/VERSION)" = "1.4.95"
+      - name: Aplicar editor de músicas
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/patch-v1496-music-editor.py
+          python3 scripts/patch-v1496-music-editor.py
+      - name: Validar UI, permissões e sistema
+        run: |
+          set -euo pipefail
+          test "$(cat pkg/VERSION)" = "1.4.96"
+          php -l pkg/api/music-edit-v1496.php
+          php -l pkg/api/bootstrap.php
+          node --check pkg/assets/index-C6Ng0a8i.js
+          find pkg/assets -maxdepth 1 -name 'index-*.js' -print -quit | xargs -r node --check
+          grep -Fq 'music-edit-v1496.php' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'Salvar alterações' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'Editar Música' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'aria-label":"Editar música "+B.titulo' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'M=R||t==="pastor"||t==="lider"' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq 'disabled:$S1496' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq '.eq("igreja_id",n)' pkg/assets/index-C6Ng0a8i.js
+          grep -Fq "hash_equals(\$ownChurch,\$requestedChurch)" pkg/api/music-edit-v1496.php
+          grep -Fq "BINARY id=BINARY ? AND BINARY igreja_id=BINARY ?" pkg/api/music-edit-v1496.php
+          grep -Fq "BINARY lider_id=BINARY ?" pkg/api/music-edit-v1496.php
+          grep -Fq 'Cache-Control: no-store' pkg/api/music-edit-v1496.php
+          grep -Fq 'escala-version:1.4.96' pkg/sw.js
+          grep -Eq 'src="/assets/index-[^"]+\.js\?v=1\.4\.96"' pkg/sistema.html
+          python3 - <<'PY'
+          from pathlib import Path
+          js=next(Path('pkg/assets').glob('index-*.js')).read_text()
+          assert js.count('r.jsx(Vt,{children:$E1496?"Editar Música":"Nova Música"})') == 1
+          assert js.count('aria-label":"Editar música "+B.titulo') == 1
+          assert js.count('"/api/music-edit-v1496.php"') == 1
+          assert js.count('children:$E1496?($S1496?"Salvando...":"Salvar alterações"):"Adicionar Música"') == 1
+          assert 'update({link_youtube:B})' in js
+          assert 'Não foi possível salvar a edição' not in js
+          print('Verificações de edição, inclusão, visualização e atualização: OK')
+          PY
+      - name: Empacotar atualização com módulos existentes
+        run: |
+          set -euo pipefail
+          (cd pkg && zip -qr ../escala-de-proposito-cpanel.zip .)
+          cp escala-de-proposito-cpanel.zip escalastop-cpanel.zip
+          unzip -t escala-de-proposito-cpanel.zip >/dev/null
+          sha256sum escala-de-proposito-cpanel.zip > SHA256-v1.4.96.txt
+      - name: Publicar versão v1.4.96
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.4.96 \
+            escala-de-proposito-cpanel.zip escalastop-cpanel.zip SHA256-v1.4.96.txt \
+            --target "$GITHUB_SHA" \
+            --title 'Escala de Propósito v1.4.96 — Editar músicas do repertório' \
+            --notes-file pkg/ATUALIZACAO-v1.4.96.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escala-de-proposito-cpanel-v1.4.96
+          path: |
+            escala-de-proposito-cpanel.zip
+            escalastop-cpanel.zip
+            SHA256-v1.4.96.txt
+          retention-days: 30
